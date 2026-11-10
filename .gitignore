@@ -1,0 +1,10 @@
+# Build
+target/
+
+# Lokale H2-Datenbank
+data/
+
+# IDE
+.idea/
+*.iml
+.vscode/

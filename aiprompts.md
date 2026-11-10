@@ -1,0 +1,57 @@
+# KI-Nutzung
+
+Dieses Dokument beschreibt transparent, wie ich KI bei der Case Study eingesetzt habe. Es ist kuratiert und fasst die wichtigen Prompts zusammen, Rohprotokolle liegen nur lokal.
+
+## Werkzeuge
+
+- **Claude (Chat)** als Sparringspartner für das fachliche Design: Fachmodell, Verrechnungslogik, Abwägungen. Daraus ist der initiale Auftrag entstanden.
+- **Claude Code** für die Umsetzung im Repository, immer mit Plan-Freigabe vor jeder Stufe.
+- **Hooks und Leitplanken** (lokal):
+  - Ein `UserPromptSubmit`-Hook protokolliert jeden meiner Prompts automatisch. Das Protokoll ist die Grundlage für dieses Dokument.
+  - Deny-Regeln verbieten `git push --force`, `git reset --hard` und das Löschen von `.git`.
+  - Ein versionierter `pre-push`-Hook führt `./mvnw verify` aus.
+- **Subagents mit getrennten Rollen:**
+  - **Product Manager:** leitet Akzeptanzkriterien (Given/When/Then) ab und nimmt die Stufe ab.
+  - **Tester:** schreibt die Tests aus den Akzeptanzkriterien.
+  - **Coder:** implementiert, bis die Tests grün sind.
+  - **Reviewer:** prüft rein lesend.
+
+**Warum Tests aus den Akzeptanzkriterien statt aus dem Code?** Tests, die aus der fertigen Implementierung abgeleitet werden, bestätigen nur, was der Code ohnehin tut, auch seine Fehler. Werden sie aus den fachlichen Kriterien und vor der Implementierung geschrieben, prüfen sie die Anforderung und nicht die Umsetzung.
+
+**Warum ein separater Reviewer?** Wer den Code geschrieben hat, übersieht leicht die eigenen Annahmen. Der Reviewer hat keinen Schreibzugriff und keinen Anteil an der Umsetzung. Er prüft gezielt die fachlichen Regeln (§ 367, append-only, Beträge nie negativ), die Architektur und typische Lombok-, JPA- und Sonar-Fallen.
+
+## Vorgehen
+
+1. Design im Chat erarbeitet, daraus der initiale Prompt für Claude Code.
+2. Claude Code stellt zuerst den Plan vor (Paketstruktur, Entitäten, Schema, Endpunkte) und fragt bei unklaren Regeln nach. Umgesetzt wird erst nach meiner Freigabe.
+3. Umsetzung in Sprints, eine Prioritätsstufe pro Sprint. Ich reviewe jede Stufe, erst danach wird committed und gepusht.
+4. Tests als Absicherung. Eine Stufe gilt erst als fertig, wenn `./mvnw verify` grün ist und es keine Compiler-Warnungen gibt.
+
+## Meine fachlichen Entscheidungen
+
+- **Verrechnung nach § 367 BGB statt nach dem Folien-Beispiel:** Kosten (Gebühren) → Zinsen → Hauptforderung.
+- **Verrechnungen persistiert statt berechnet:** Jede Zuordnung von Zahlung zu Posten ist nachvollziehbar und wird nie gelöscht, sondern über eine Aufhebung aufgelöst.
+- **Debitor optional und n:m mit Gesamtschuld-Annahme:** Jeder Debitor haftet für das ganze Konto.
+- **Guthaben pro Debitor:** Eine Überzahlung bleibt dem zahlenden Debitor zugeordnet.
+- **Ausbuchung über denselben Verrechnungsmechanismus, nur Gesamtrest.**
+- **Beträge nie negativ:** Die Richtung ergibt sich aus der Buchungsart.
+- **H2 im Dateimodus statt Container:** Startet ohne Infrastruktur. Flyway und `MODE=PostgreSQL` halten den Wechsel zu PostgreSQL klein.
+- **Dublettenschlüssel für Debitoren:** normalisiert aus Name, Geburtsdatum und PLZ.
+
+Bei der Planfreigabe habe ich zusätzlich festgelegt:
+- Storno einer Sollbuchung, auf die eine Ausbuchung verrechnet ist, wird mit 422 abgelehnt. Zuerst muss die Ausbuchung storniert werden.
+- Die automatische Verrechnung bei Zahlungseingang verteilt nur die neue Zahlung. Vorhandenes Guthaben wird nur über den Verrechnungs-Endpunkt verteilt.
+- Eine Zahlung auf ein Konto ohne offene Posten ist erlaubt und wird vollständig Guthaben.
+- Der Idempotenz-Hash umfasst Operationstyp, Konto und ggf. die stornierte Buchung.
+
+## Wo ich KI-Vorschläge korrigiert oder verworfen habe
+
+| Thema | Vorschlag der KI | Meine Entscheidung |
+|---|---|---|
+| Valuta einer Storno-Buchung | Datum des Buchungstags (aus der `Clock`) | Valuta des **Originals**, damit Original und Storno in der Historie zeitlich zusammenfallen |
+| Commit-Attribution | Standardmäßig `Co-Authored-By` in den Commits | Keine Attribution in Commits. Die KI-Nutzung ist stattdessen hier dokumentiert |
+
+## Zentrale Prompts (Kurzform)
+
+1. **Initialer Auftrag:** Buchungsservice in Java 21 / Spring Boot mit Fachmodell (Konto, Beteiligte, Buchungen, Verrechnung nach § 367, Storno, Ausbuchung), REST-API, Idempotenz, Konsistenzprüfung, Prioritätsstufen 0 bis 6 und Definition of Done. Zuerst Plan vorstellen, dann stufenweise umsetzen.
+2. **Planfreigabe:** Arbeit in Sprints mit Review vor jedem Commit. Offene Punkte entschieden: 422 bei Storno einer ausgebuchten Sollbuchung, Valuta-Regeln für Storno und Ausbuchung, Umfang der automatischen Verrechnung, Zahlung ohne offene Posten, Umfang des Idempotenz-Hashes.
