@@ -10,6 +10,7 @@ Dieses Dokument beschreibt transparent, wie ich KI bei der Case Study eingesetzt
   - Ein `UserPromptSubmit`-Hook protokolliert jeden meiner Prompts automatisch. Das Protokoll ist die Grundlage für dieses Dokument.
   - Deny-Regeln verbieten `git push --force`, `git reset --hard` und das Löschen von `.git`.
   - Ein versionierter `pre-push`-Hook führt `./mvnw verify` aus.
+- **Zweite Claude-Instanz zur Gegenprüfung:** Die Ergebnisse habe ich zusätzlich von einer zweiten, unabhängigen Claude-Instanz gegenprüfen lassen. Die Entscheidungen habe ich selbst getroffen, teils auch gegen deren Empfehlung.
 - **Subagents mit getrennten Rollen:**
   - **Product Manager:** leitet Akzeptanzkriterien (Given/When/Then) ab und nimmt die Stufe ab.
   - **Tester:** schreibt die Tests aus den Akzeptanzkriterien.
@@ -48,14 +49,14 @@ Bei der Planfreigabe habe ich zusätzlich festgelegt:
 
 | Thema | Vorschlag der KI | Meine Entscheidung |
 |---|---|---|
-| Valuta einer Storno-Buchung | Datum des Buchungstags (aus der `Clock`) | Valuta des **Originals**, damit Original und Storno in der Historie zeitlich zusammenfallen |
+| Valuta einer Storno-Buchung | Datum des Buchungstags (aus der `Clock`) | Valuta des **Originals**: Ein Storno korrigiert eine von Anfang an falsche Buchung. So ist der Saldo zu jedem Stichtag korrekt, und es entstehen keine Zinsen auf eine Forderung, die nie bestanden hat. Den Zeitpunkt der Korrektur zeigt die Buchungszeit |
 | Commit-Attribution | Standardmäßig `Co-Authored-By` in den Commits | Keine Attribution in Commits. Die KI-Nutzung ist stattdessen hier dokumentiert |
 | Konsistenz-Invariante 2 | „Saldo = Σ offene Posten − Σ Guthaben“, verglichen mit dem berechneten Saldo | Ersetzt durch zwei direkte Prüfungen: kein Posten überbezahlt, keine Zahlung oder Ausbuchung überverteilt. Die Summenformel ist schwer nachvollziehbar und benennt die fehlerhafte Buchung nicht |
 | Storno mit Buchung eines anderen Kontos | 404 („in diesem Konto nicht gefunden“) | 422: Die Buchung existiert, die Anfrage verletzt aber die Regel, dass Storno und Original zum selben Konto gehören |
 | Zeitzone für „heute“ (Ausbuchungs-Valuta) | Europe/Berlin (deutscher Geschäftstag) | UTC, für ein weltweit einheitliches System |
 | Parallele Buchungen auf ein Konto | Optimistisches Locking: Die zweite parallele Buchung bekommt 409, der Client wiederholt | Pessimistisches Locking pro Konto mit `@Version` als Absicherung. Parallele Zahlungen werden nacheinander gebucht, beide erfolgreich, abgesichert durch einen Test mit zwei Threads |
 | Review-Findings | Schärfere Prüfung der Error-Logs in Tests, Sonar-Kleinkram sofort beheben | Log-Prüfung nicht verschärft (wenig Mehrwert). Sonar-Findings erst in Stufe 5, wenn SonarQube Cloud läuft |
-| Review Stufe 2: Betrag mit extremem Exponenten | Größenordnung vor dem Runden prüfen (DoS-Schutz) | Nicht umgesetzt, als bekannte Grenze in der README. Der Randfall ist für eine Case Study zu speziell |
+| Review Stufe 2: Betrag mit extremem Exponenten | Größenordnung vor dem Runden prüfen (DoS-Schutz) | Zunächst nur als bekannte Grenze dokumentiert. In der letzten Runde vor der Abgabe doch umgesetzt: Größenordnung vor dem Runden prüfen, abgesichert durch Tests mit Timeout |
 | Review Stufe 2: optionale Erweiterungen | `feldfehler` bei Typfehlern, `Location`-Header | Keine neuen Features. Nur Fehlerbehebungen (`@Size` gegen 500) und Aufräumarbeiten |
 | Lock-Timeout | Expliziter `LOCK_TIMEOUT` in der JDBC-URL plus Test für das Überschreiten | Nicht gesetzt. Der Datenbank-Standard gilt, die README beschreibt das offen als bekannte Grenze |
 | Pre-Push-Hook | Einmalig `--no-verify` für den Fundament-Commit angeboten | Kein Überspringen. Fundament-Commits gehen zusammen mit Stufe 1 raus, wenn alles grün ist |
@@ -89,3 +90,8 @@ Bei der Planfreigabe habe ich zusätzlich festgelegt:
    - Die optionale Stufe 6 (Docker) habe ich bewusst weggelassen.
    - Die README habe ich auf vier Abschnitte gekürzt: Start, Annahmen, Verrechnungsreihenfolge, Nächste Schritte.
    - Die Details liegen jetzt in `docs/details.md`.
+10. **Letzte Runde vor der Abgabe:**
+    - DoS-Schutz in `Betrag`: Die Größenordnung wird vor dem Runden geprüft, abgesichert durch Tests mit einem Timeout von einer Sekunde.
+    - Demo-Kreditor umbenannt in „Musterstadt Versandhandel GmbH“.
+    - Begründung der Storno-Valuta geschärft.
+    - In der README steht „JDK 21“, und es gibt einen Hinweis auf httpyac und Swagger für `demo.http`.

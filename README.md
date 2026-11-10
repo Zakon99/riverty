@@ -10,7 +10,7 @@ Architektur, Fachmodell und alle Annahmen im Detail stehen in [`docs/details.md`
 
 ## Start
 
-Voraussetzung: JDK 21 oder neuer. Der Maven Wrapper ist enthalten.
+Voraussetzung: JDK 21. Der Maven Wrapper ist enthalten.
 
 ```sh
 ./mvnw spring-boot:run                                   # Start (H2-Datei unter ./data)
@@ -31,7 +31,7 @@ JDBC-URL für die H2-Konsole:
 jdbc:h2:file:./data/buchungsservice;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DEFAULT_NULL_ORDERING=HIGH;AUTO_SERVER=TRUE
 ```
 
-Den Demo-Ablauf in der Reihenfolge des Interviews enthält [`docs/demo.http`](docs/demo.http), ausführbar in IntelliJ: Beteiligte und Konto → Sollbuchung und Zahlung → Verrechnung und Storno. Die Erwartungswerte gelten für eine frische Datenbank, deshalb vorher `./data` löschen.
+Den Demo-Ablauf in der Reihenfolge des Interviews enthält [`docs/demo.http`](docs/demo.http): Beteiligte und Konto → Sollbuchung und Zahlung → Verrechnung und Storno. Die Datei läuft direkt im HTTP-Client von IntelliJ, in VS Code oder auf der Kommandozeile mit [httpyac](https://httpyac.github.io/) (`npx httpyac send docs/demo.http --all`). Ohne diese Werkzeuge lassen sich dieselben Requests über die Swagger UI absetzen. Die Erwartungswerte gelten für eine frische Datenbank, deshalb vorher `./data` löschen.
 
 ## Annahmen
 

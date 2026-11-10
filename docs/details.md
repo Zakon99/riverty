@@ -149,7 +149,6 @@ Die statische Analyse läuft über [SonarQube Cloud](https://sonarcloud.io/summa
 
 Diese Punkte sind bewusst nicht umgesetzt. Für eine Case Study stehen Aufwand und Nutzen in keinem guten Verhältnis, in einem produktiven System würden sie angegangen.
 
-- **Beträge mit extremem Exponenten:** Ein Betrag wie `1e1000000000` passiert `@Positive` und das Längenlimit von Jackson, weil der Text kurz ist. `Betrag` rundet zuerst auf zwei Nachkommastellen und prüft danach die Obergrenze. Das Runden einer Zahl mit Milliarden Stellen kann sehr viel CPU und Speicher kosten. Abhilfe wäre, vor dem Runden die Größenordnung zu prüfen oder die erlaubte Skala schon beim JSON-Parsen zu begrenzen.
 - **Keine `feldfehler` bei Typfehlern:** Bei `"betrag": "abc"`, einem unbekannten Enum-Wert oder einem falschen Datumsformat kommt 400 mit allgemeinem Text, aber ohne Feldangabe.
 - **Kein `Location`-Header** bei 201-Antworten.
 - **Gemeldete Schwachstelle in springdoc:** Der Abhängigkeits-Scan der IDE meldet für `springdoc-openapi-starter-webmvc-ui` 3.2.0 eine CVE (CVE-2026-110879), möglicherweise über eine transitive Abhängigkeit. 3.2.0 ist die aktuelle Version, ein Update ist derzeit nicht möglich. Swagger UI dient hier nur der Demo und ließe sich in Produktion abschalten (`springdoc.swagger-ui.enabled=false`) oder ganz entfernen. Dependabot meldet neue Versionen automatisch.
@@ -227,6 +226,7 @@ Diese Punkte sind bewusst nicht umgesetzt. Für eine Case Study stehen Aufwand u
   - Ein Betrag, der nach dem Runden 0.00 ergibt (z. B. 0.004), ist aus Client-Sicht eine ungültige Eingabe wie 0 oder ein negativer Betrag und ergibt 400.
   - Beträge haben höchstens 13 Vorkommastellen, passend zur Spalte `NUMERIC(15,2)`. Größere Beträge ergeben ebenfalls 400. Entscheidend ist der gerundete Wert: 9999999999999.995 wird abgelehnt.
   - In beiden Fällen heißt der Eintrag in `feldfehler` `betrag`.
+  - Schutz vor extremen Exponenten: Ein Betrag wie `1e1000000000` passiert `@Positive` und das Längenlimit von Jackson, weil der Text kurz ist. Würde er auf zwei Nachkommastellen gerundet, entstünde eine Zahl mit Milliarden Stellen, was CPU und Speicher erschöpfen könnte. `Betrag` prüft deshalb die Reihenfolge null → Vorzeichen → Größenordnung (vor dem Runden) → Runden → Vorzeichen → Obergrenze. Werte mit mehr als 13 Vorkommastellen oder unter 0.001 werden abgelehnt, ohne gerundet zu werden (400). Tests mit einem Timeout von einer Sekunde sichern das ab.
 - Textfelder haben eine Höchstlänge passend zum Datenbankschema (`@Size`). Zu lange Werte ergeben 400 mit `feldfehler` statt eines Datenbankfehlers. Geprüft wird der Rohwert vor dem Trimmen.
 
   | Feld | Höchstlänge |
@@ -244,7 +244,7 @@ Diese Punkte sind bewusst nicht umgesetzt. Für eine Case Study stehen Aufwand u
 
 | Objekt | Werte |
 |---|---|
-| Kreditor | `K-DEMO`, „Musterstadt Inkasso GmbH“ |
+| Kreditor | `K-DEMO`, „Musterstadt Versandhandel GmbH“ |
 | Debitor | Max Mustermann, geb. 14.03.1985, PLZ 10115; zugeordnet bei der Kontoanlage („Kontoanlage“) |
 | Debitor | Erika Mustermann, geb. 22.08.1987, PLZ 10115; zugeordnet mit `zugeordnetVon` „demo“ |
 | Konto | `DEMO-0001` |
