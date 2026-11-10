@@ -15,3 +15,7 @@ spring:
           time_zone: UTC
   flyway:
     locations: classpath:db/migration
+  h2:
+    console:
+      enabled: true
+      path: /h2-console
