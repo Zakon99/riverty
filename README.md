@@ -1,5 +1,7 @@
 # Buchungsservice
 
+[![CI](https://github.com/Zakon99/riverty/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Zakon99/riverty/actions/workflows/ci.yml)
+
 Kleiner Buchungsservice für Forderungskonten, entstanden als Case Study für Riverty (Team Cosima Accounting). Nur Backend: Java 21, Spring Boot 4, REST-API.
 
 Der Service verwaltet Kreditoren, Debitoren und Forderungskonten. Er bucht Sollposten (Hauptforderung, Zinsen, Gebühren) und Zahlungen und verrechnet Zahlungen nach **§ 367 BGB**. Er unterstützt Storno und Ausbuchung, und er prüft die Konsistenz eines Kontos. Buchungen und Verrechnungen sind unveränderlich (append-only): Korrekturen entstehen ausschließlich als neue Datensätze.
@@ -49,6 +51,10 @@ Die H2-Datei ist mit `AUTO_SERVER=TRUE` geöffnet. So kann die H2-Konsole parall
 - **Architekturtests** mit ArchUnit.
 
 Alle Tests nutzen eine verstellbare Test-Clock und laufen dadurch deterministisch. Der Coverage-Report liegt nach dem Lauf unter `target/site/jacoco/index.html`.
+
+## Continuous Integration
+
+GitHub Actions (`.github/workflows/ci.yml`) baut bei jedem Push und Pull Request auf `main` mit Temurin JDK 21 und Maven-Cache und führt `./mvnw -B verify` aus. Test-Reports und der JaCoCo-Coverage-Report werden als Artifacts am Workflow-Lauf abgelegt, auch wenn der Build fehlschlägt. Dependabot (`.github/dependabot.yml`) schlägt wöchentlich Updates für Maven-Abhängigkeiten und GitHub Actions vor, Spring-Boot-Artefakte gebündelt in einem Pull Request.
 
 ## Setup für Mitwirkende
 
