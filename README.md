@@ -1,14 +1,56 @@
 # Buchungsservice
 
-Kleiner Buchungsservice für Forderungskonten, entstanden als Case Study für Riverty (Team Cosima Accounting). Nur Backend: Java 21, Spring Boot, REST-API.
+Kleiner Buchungsservice für Forderungskonten, entstanden als Case Study für Riverty (Team Cosima Accounting). Nur Backend: Java 21, Spring Boot 4, REST-API.
 
-Der Service verwaltet Kreditoren, Debitoren und Forderungskonten. Er bucht Sollposten und Zahlungen, verrechnet Zahlungen nach § 367 BGB, unterstützt Storno und Ausbuchung und prüft die Konsistenz eines Kontos.
+Der Service verwaltet Kreditoren, Debitoren und Forderungskonten. Er bucht Sollposten (Hauptforderung, Zinsen, Gebühren) und Zahlungen und verrechnet Zahlungen nach **§ 367 BGB**. Er unterstützt Storno und Ausbuchung, und er prüft die Konsistenz eines Kontos. Buchungen und Verrechnungen sind unveränderlich (append-only): Korrekturen entstehen ausschließlich als neue Datensätze.
 
-> Die Dokumentation wird stufenweise vervollständigt.
+**Inhalt:** [Schnellstart](#schnellstart) · [Tests](#tests) · [Architektur](#architektur) · [Fachmodell](#fachmodell) · [Verrechnungsreihenfolge](#verrechnungsreihenfolge-nach--367-bgb) · [Datenbank](#datenbank-h2-und-postgresql) · [Bekannte Grenzen](#bekannte-grenzen) · [Annahmen](#annahmen) · [Nächste Schritte](#nächste-schritte) · [KI-Nutzung](#ki-nutzung)
 
-## Setup
+## Schnellstart
 
-Voraussetzungen: JDK 21 oder neuer. Maven ist nicht nötig, der Maven Wrapper ist enthalten.
+Voraussetzung: JDK 21 oder neuer. Maven ist nicht nötig, der Maven Wrapper ist enthalten.
+
+```sh
+# Anwendung starten (H2-Datei unter ./data)
+./mvnw spring-boot:run
+
+# Mit Demo-Daten (Konto DEMO-0001 mit zwei Debitoren und drei Sollposten)
+./mvnw spring-boot:run -Dspring-boot.run.profiles=demo
+```
+
+Unter Windows (PowerShell) lautet der Demo-Start `./mvnw spring-boot:run "-Dspring-boot.run.profiles=demo"`.
+
+| Was | URL |
+|---|---|
+| Swagger UI | http://localhost:8080/swagger-ui.html |
+| OpenAPI-Dokument | http://localhost:8080/v3/api-docs |
+| H2-Konsole | http://localhost:8080/h2-console (Benutzer `sa`, Passwort leer, JDBC-URL siehe unten) |
+
+JDBC-URL für die H2-Konsole, identisch mit `application.yml`:
+
+```
+jdbc:h2:file:./data/buchungsservice;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DEFAULT_NULL_ORDERING=HIGH;AUTO_SERVER=TRUE
+```
+
+**Demo-Walkthrough:** [`docs/demo.http`](docs/demo.http) enthält alle Requests in der Reihenfolge des Interviews: Beteiligte und Konto → Sollbuchung und Zahlung → Verrechnung und Storno. Die Datei lässt sich in IntelliJ direkt ausführen. Den kompletten Ablauf habe ich gegen die laufende Anwendung durchgespielt. Er endet mit Saldo 0.00 und Konsistenz OK. Die Erwartungswerte in den Kommentaren gelten für eine frische Datenbank. Vor einer Demo am besten das Verzeichnis `./data` löschen.
+
+Die H2-Datei ist mit `AUTO_SERVER=TRUE` geöffnet. So kann die H2-Konsole parallel zur laufenden Anwendung auf dieselbe Datenbank zugreifen. Die Konsole ist nur für die lokale Entwicklung gedacht und wäre in Produktion abgeschaltet.
+
+## Tests
+
+```sh
+./mvnw verify
+```
+
+`verify` läuft ohne Compiler-Warnungen durch (`-Xlint:all,-processing`, `failOnWarning`; ausgenommen ist nur die Meta-Warnung `processing`, weil Lombok als einziger Annotation-Processor fremde Annotationen nicht beansprucht). Der Testlauf umfasst:
+- **Unit-Tests** für Domain-Werttypen: `Betrag`, Dublettenschlüssel, Buchungsart.
+- **Service-Tests** gegen eine H2-In-Memory-Datenbank: Verrechnung nach § 367, Storno, Ausbuchung, Konsistenz, Idempotenz, parallele Zugriffe. Sie laufen bewusst mit echter Datenbank, damit Verrechnung, Persistenz, Constraints und Sperren gemeinsam geprüft werden.
+- **REST-Integrationstests** mit MockMvc, darunter ein durchgehender Interview-Flow nur über HTTP.
+- **Architekturtests** mit ArchUnit.
+
+Alle Tests nutzen eine verstellbare Test-Clock und laufen dadurch deterministisch. Der Coverage-Report liegt nach dem Lauf unter `target/site/jacoco/index.html`.
+
+## Setup für Mitwirkende
 
 Den versionierten Pre-Push-Hook aktivieren. Er führt vor jedem Push `./mvnw verify` aus und bricht den Push bei Fehlern ab:
 
@@ -16,9 +58,132 @@ Den versionierten Pre-Push-Hook aktivieren. Er führt vor jedem Push `./mvnw ver
 git config core.hooksPath .githooks
 ```
 
+## Architektur
+
+```
+de.riverty.buchungsservice
+ ├─ api            Controller, Request/Response-Records, Fehlerbehandlung (ProblemDetail)
+ ├─ config         Clock, Validierung, OpenAPI, Demo-Daten
+ └─ internal
+     ├─ domain       Entitäten, Value Objects (Betrag, Dublettenschlüssel), Enums, fachliche Exceptions
+     ├─ service      Anwendungslogik, Transaktionen, Verrechnung nach § 367, Lesemodelle
+     └─ persistence  Spring-Data-Repositories
+```
+
+Diese Regeln erzwingt ein ArchUnit-Test (`ArchitekturTest`):
+- `internal` kennt `api` nicht.
+- `api` greift nicht auf `persistence` zu, Controller arbeiten also nur über Services.
+- `persistence` kennt `service` nicht, `domain` hängt von keiner anderen Schicht ab.
+- Keine `Map` als Fach- oder API-Typ.
+
+Weitere Designentscheidungen:
+- **Fachlogik in der Domain:** `Buchungsart` kennt Soll/Haben und den Tilgungsrang nach § 367. `Forderungskonto` schreibt den Saldo fort. `Betrag` rundet kaufmännisch und lehnt Werte ≤ 0 ab.
+- **Lombok nur sparsam:** auf Entities nur `@Getter` und `@NoArgsConstructor(access = PROTECTED)`, Erzeugung über statische Factories, `equals`/`hashCode` über die Id. `Buchung` und `Verrechnung` sind `@Immutable` und haben keine Setter. DTOs und Value Objects sind Records.
+- **Schema ausschließlich über Flyway**, Hibernate validiert nur (`ddl-auto=validate`). Constraints in der Datenbank sichern zusätzlich ab: Unique, CHECK `betrag > 0`, art-abhängige Pflichtfelder, ein Storno je Buchung.
+- **Zeit über eine injizierte `Clock`:** Die Valuta ist ein `LocalDate`, die Buchungszeit ein `Instant` in UTC.
+
+## Fachmodell
+
+```mermaid
+classDiagram
+    direction LR
+    class Kreditor {
+        Long id
+        String kreditorennummer
+        String name
+    }
+    class Debitor {
+        Long id
+        String vorname
+        String nachname
+        LocalDate geburtsdatum
+        String plz
+        String dublettenschluessel
+    }
+    class Forderungskonto {
+        Long id
+        String aktenzeichen
+        BigDecimal saldo
+        Long version
+    }
+    class KontoDebitor {
+        Long id
+        Instant zugeordnetAm
+        String zugeordnetVon
+    }
+    class Buchung {
+        Long id
+        Buchungsart art
+        Betrag betrag
+        LocalDate valuta
+        Instant buchungszeit
+        String clientRequestId
+        String requestHash
+        String grund
+        String bemerkung
+        String ausloeser
+    }
+    class Verrechnung {
+        Long id
+        VerrechnungsArt art
+        Betrag betrag
+        Instant zeitpunkt
+    }
+    Forderungskonto "*" --> "1" Kreditor : kreditor
+    Forderungskonto "1" --> "*" KontoDebitor : debitoren
+    KontoDebitor "*" --> "1" Debitor : debitor
+    Buchung "*" --> "1" Forderungskonto : konto
+    Buchung "*" --> "0..1" Kreditor : bei Soll
+    Buchung "*" --> "0..1" Debitor : bei Zahlung
+    Buchung "0..1" --> "0..1" Buchung : stornoVon
+    Verrechnung "*" --> "1" Buchung : habenBuchung
+    Verrechnung "*" --> "1" Buchung : sollBuchung
+    Verrechnung "0..1" --> "0..1" Verrechnung : aufhebungVon
+    Verrechnung "*" --> "0..1" Buchung : ausgeloestDurch
+```
+
+Eindeutig sind: Kreditorennummer, Dublettenschlüssel, Aktenzeichen, `clientRequestId`.
+
+| Buchungsart | Seite | Bemerkung |
+|---|---|---|
+| HAUPTFORDERUNG, ZINSEN, GEBUEHREN | Soll | speichert den Kreditor des Kontos |
+| ZAHLUNG | Haben | speichert den zahlenden Debitor |
+| AUSBUCHUNG | Haben | immer der gesamte offene Rest, erzeugt nie Guthaben |
+| STORNO | Gegenseite des Originals | gleicher Betrag, verweist über `stornoVon` auf das Original |
+
+Beträge sind **nie negativ**, die Richtung ergibt sich aus der Buchungsart. Der Saldo ist Σ Soll − Σ Haben, Stornos werden gegengerechnet. Ein negativer Saldo bedeutet Guthaben.
+
+**Verrechnungen werden gespeichert**, nicht nur berechnet. Jede Zuordnung einer Zahlung oder Ausbuchung zu einem Sollposten ist ein eigener Datensatz. Ein Storno löscht keine Verrechnung, sondern erzeugt eine `AUFHEBUNG`, die auf die Original-Verrechnung und auf die auslösende Storno-Buchung verweist. Daraus abgeleitet werden:
+- **Offener Betrag eines Sollpostens** = Betrag − Σ Verrechnungen + Σ Aufhebungen. Ein stornierter Posten ist nicht offen.
+- **Guthaben einer Zahlung** = Betrag − netto verrechneter Betrag. Ist die Zahlung storniert, ist das Guthaben 0.
+- **Guthaben pro Debitor** = Σ Guthaben seiner Zahlungen auf diesem Konto.
+
+### Verrechnungsreihenfolge nach § 367 BGB
+
+1. **Gebühren (Kosten) → Zinsen → Hauptforderung**
+2. Innerhalb einer Art: älteste Valuta zuerst, dann Buchungszeit, dann Id.
+3. Wird vorhandenes Guthaben verteilt: älteste Zahlung (Valuta) zuerst.
+
+**Abweichung von der Folie:** Die Aufgabenstellung nennt als Beispiel die Reihenfolge Hauptforderung → Zinsen → Gebühren. Der Service folgt bewusst der gesetzlichen Reihenfolge aus § 367 Abs. 1 BGB: Eine Leistung wird zuerst auf die Kosten, dann auf die Zinsen und zuletzt auf die Hauptleistung angerechnet. Annahme: Inkassogebühren gelten als Kosten im Sinne von § 367. Die Reihenfolge steckt an einer Stelle (`Buchungsart.tilgungsrang()`) und ließe sich bei anderer fachlicher Vorgabe leicht ändern.
+
+Verrechnet wird bei jedem Zahlungseingang automatisch, und zwar nur die neue Zahlung. Explizit verteilt `POST /api/konten/{id}/verrechnung` vorhandenes Guthaben, etwa wenn nach einer Überzahlung neue Zinsen gebucht werden.
+
+## Datenbank: H2 und PostgreSQL
+
+Die Anwendung nutzt bewusst **H2 im Dateimodus** (`MODE=PostgreSQL`). Sie startet damit ohne Docker und ohne weitere Infrastruktur, und die Daten bleiben über Neustarts erhalten. Tests laufen gegen eine eigene H2-In-Memory-Datenbank.
+
+In Produktion käme **PostgreSQL** zum Einsatz. Durch Flyway und `MODE=PostgreSQL` ist der Wechsel klein:
+- PostgreSQL-Treiber statt H2 und eine andere Datasource-Konfiguration.
+- Die Migrationen sind portabel geschrieben (`GENERATED BY DEFAULT AS IDENTITY`, `NUMERIC(15,2)`, `TIMESTAMP WITH TIME ZONE`, CHECK-Constraints).
+- Für Integrationstests gegen echtes PostgreSQL böten sich Testcontainers an.
+
 ## Konfiguration
 
 Die Zugangsdaten der lokalen H2-Datenbank (`sa`, leeres Passwort) stehen der Einfachheit halber im Klartext in `application.yml`. In produktivem Code stünden Credentials natürlich nicht im Klartext im Repository. Sie würden über Umgebungsvariablen oder einen Secret-Store (z. B. Vault, Kubernetes Secrets oder einen Cloud Secrets Manager) injiziert.
+
+## Codequalität: SonarQube Cloud
+
+Für die statische Analyse ist SonarQube Cloud vorgesehen, die Einbindung in die CI folgt als eigener Schritt. Das ist hier kostenlos, weil das Repository öffentlich ist. Für privaten Code in Produktion wäre ein kostenpflichtiger Plan oder ein selbst gehosteter SonarQube Server nötig.
 
 ## Bekannte Grenzen
 
@@ -33,12 +198,11 @@ Diese Punkte sind bewusst nicht umgesetzt. Für eine Case Study stehen Aufwand u
 ## Annahmen
 
 ### Verrechnung
-- **Reihenfolge nach § 367 BGB:** Gebühren (Kosten) → Zinsen → Hauptforderung. Die Folie der Aufgabenstellung nennt als Beispiel Hauptforderung → Zinsen → Gebühren. Wir folgen bewusst der gesetzlichen Reihenfolge. Annahme: Inkassogebühren gelten als Kosten im Sinne von § 367.
-- Innerhalb einer Buchungsart wird der Posten mit der ältesten Valuta zuerst bedient. Bei gleicher Valuta entscheidet die frühere Buchungszeit, bei gleicher Buchungszeit die kleinere Id. Die Reihenfolge ist damit immer eindeutig.
+- Reihenfolge nach § 367 BGB mit Begründung der Abweichung von der Folie: siehe [Verrechnungsreihenfolge](#verrechnungsreihenfolge-nach--367-bgb). Durch den Tie-Breaker über die Id ist die Reihenfolge immer eindeutig.
 - **Die Valuta ist kein Stichtag:** Sie bestimmt nur die Reihenfolge. Auch Posten mit einer Valuta in der Zukunft werden sofort von Zahlungen bedient, und Zahlungen mit Zukunftsvaluta werden sofort verrechnet.
 - **Gesamtschuld:** Jeder dem Konto zugeordnete Debitor haftet für alle Posten. Guthaben jedes Debitors darf deshalb auf alle offenen Posten des Kontos verteilt werden.
 - **Guthaben gilt pro Konto:** Ein Guthaben, das ein Debitor auf Konto A hat, wird nie auf Konto B verrechnet, auch wenn er beiden Konten zugeordnet ist.
-- Die **automatische Verrechnung** bei Zahlungseingang verteilt nur die neue Zahlung. Vorhandenes Guthaben aus früheren Zahlungen wird nur explizit über `POST /api/konten/{id}/verrechnung` verteilt. Dabei kommt die Zahlung mit der ältesten Valuta zuerst, danach die mit der früheren Buchungszeit, danach die mit der kleineren Id.
+- Die **automatische Verrechnung** bei Zahlungseingang verteilt nur die neue Zahlung. Vorhandenes Guthaben wird nur explizit verteilt, dann die Zahlung mit der ältesten Valuta zuerst, danach die mit der früheren Buchungszeit, danach die mit der kleineren Id.
 
 ### Zahlung
 - Eine Zahlung ist immer einem Debitor zugeordnet, der dem Konto zugeordnet sein muss.
@@ -51,7 +215,6 @@ Diese Punkte sind bewusst nicht umgesetzt. Für eine Case Study stehen Aufwand u
 ### Storno
 - Die Valuta einer Storno-Buchung ist die **Valuta der Originalbuchung**. Original und Storno fallen in der Historie zeitlich zusammen.
 - Eine Sollbuchung, auf die bereits eine Ausbuchung verrechnet ist, kann nicht storniert werden (422). Zuerst muss die Ausbuchung storniert werden, denn eine Ausbuchung darf nie Guthaben erzeugen.
-
 - Ein Storno hebt **alle** aktiven Verrechnungen der Originalbuchung auf, egal ob sie aus der automatischen Verrechnung bei Zahlungseingang stammen oder aus der expliziten Verrechnung.
 - Eine Zahlung kann auch nach einer Ausbuchung storniert werden. Aufgehoben werden nur die Verrechnungen dieser Zahlung, die Ausbuchung bleibt bestehen. Die Posten, die die Zahlung bedient hatte, sind wieder offen, und der Saldo wird wieder positiv. Sie können erneut bezahlt oder ausgebucht werden.
 - Die Storno-Buchung muss zum Konto im Pfad gehören. Die Id einer Buchung eines anderen Kontos wird als Regelverstoß abgelehnt (422).
@@ -179,3 +342,18 @@ Die ursprünglich geplante Invariante „Saldo = Σ offene Posten − Σ Guthabe
 
 ### Gespeicherte Stammdaten
 - Namen und PLZ werden unverändert gespeichert. Normalisiert wird nur der Dublettenschlüssel, getrimmt nur Kreditorennummer und Aktenzeichen.
+
+## Nächste Schritte
+
+- **Ausbuchung einzelner Posten** statt nur des gesamten offenen Rests.
+- **Debitor vom Konto entfernen** (mit Historie der Zuordnungen).
+- **Fuzzy-Dublettenprüfung** für Debitoren (Tippfehler, Namensvarianten), z. B. mit phonetischen Verfahren oder Ähnlichkeitsmaßen.
+- **Zinsberechnung** (Verzugszinsen) statt manuell gebuchter Zinsen.
+- **Authentifizierung und Autorisierung**. Der Auslöser von Storno, Ausbuchung und Zuordnung käme dann aus dem Security-Context statt aus dem Request.
+- **PostgreSQL** als Datenbank, Integrationstests mit Testcontainers.
+- **Paginierung** von Suche und Buchungshistorie.
+- **Domain Events / Outbox**, um Buchungen zuverlässig an nachgelagerte Systeme (z. B. Hauptbuch, Reporting) zu melden.
+
+## KI-Nutzung
+
+Bei der Entwicklung habe ich KI eingesetzt: Claude als Sparringspartner für das Design und Claude Code für die Umsetzung, mit getrennten Rollen für Product Manager, Tester, Coder und Reviewer. Jede Stufe habe ich selbst reviewt und freigegeben. Vorgehen, meine fachlichen Entscheidungen und die Stellen, an denen ich KI-Vorschläge korrigiert oder verworfen habe, stehen in [`aiprompts.md`](aiprompts.md).

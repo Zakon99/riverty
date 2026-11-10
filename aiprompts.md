@@ -72,3 +72,11 @@ Bei der Planfreigabe habe ich zusätzlich festgelegt:
    - Demo-Konto ohne Zahlung
    
    Die Demo-Werte habe ich mir vorab geben lassen und den Interview-Ablauf einmal durchgerechnet.
+6. **Umsetzung Stufe 2:**
+   - Das Review fand zwei Major-Findings.
+   - Ich habe entschieden, keine neuen Features aufzunehmen. Den Exponenten-Randfall habe ich nur dokumentiert. Behoben wurden zu lange Strings (500 → 400) und Aufräumpunkte.
+   - Einen falschen Test hat der Coder mit Begründung gemeldet statt ihn selbst zu ändern: doppelte URL-Kodierung in MockMvc.
+7. **Stufe 3 (Dokumentation):**
+   - Wegen des geringen Risikos mit verkürzter Agent-Kette: Die Hauptsession schreibt, der Product Manager prüft gegen den Auftrag, ich reviewe.
+   - Die H2-Konsole kam als kleine Abhängigkeit dazu.
+   - Den Demo-Ablauf aus `docs/demo.http` habe ich vor dem Schreiben gegen die laufende Anwendung durchgespielt.
