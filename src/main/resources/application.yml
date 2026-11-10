@@ -13,8 +13,5 @@ spring:
       hibernate:
         jdbc:
           time_zone: UTC
-  mvc:
-    problemdetails:
-      enabled: true
   flyway:
     locations: classpath:db/migration
