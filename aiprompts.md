@@ -57,6 +57,7 @@ Bei der Planfreigabe habe ich zusätzlich festgelegt:
 | Review-Findings | Schärfere Prüfung der Error-Logs in Tests, Sonar-Kleinkram sofort beheben | Log-Prüfung nicht verschärft (wenig Mehrwert). Sonar-Findings erst in Stufe 5, wenn SonarQube Cloud läuft |
 | Review Stufe 2: Betrag mit extremem Exponenten | Größenordnung vor dem Runden prüfen (DoS-Schutz) | Nicht umgesetzt, als bekannte Grenze in der README. Der Randfall ist für eine Case Study zu speziell |
 | Review Stufe 2: optionale Erweiterungen | `feldfehler` bei Typfehlern, `Location`-Header | Keine neuen Features. Nur Fehlerbehebungen (`@Size` gegen 500) und Aufräumarbeiten |
+| Lock-Timeout | Expliziter `LOCK_TIMEOUT` in der JDBC-URL plus Test für das Überschreiten | Nicht gesetzt. Der Datenbank-Standard gilt, die README beschreibt das offen als bekannte Grenze |
 | Pre-Push-Hook | Einmalig `--no-verify` für den Fundament-Commit angeboten | Kein Überspringen. Fundament-Commits gehen zusammen mit Stufe 1 raus, wenn alles grün ist |
 
 ## Zentrale Prompts (Kurzform)
@@ -84,3 +85,7 @@ Bei der Planfreigabe habe ich zusätzlich festgelegt:
    - Vor dem ersten CI-Lauf fiel auf, dass `mvnw` im Repo nicht ausführbar war. Unter Linux wäre der Build sofort gescheitert, lokal unter Windows war das nicht sichtbar.
    - SonarQube Cloud habe ich selbst eingerichtet. Den dabei erzeugten Vorlagen-Workflow habe ich auf Vorschlag der KI in die bestehende CI integriert, damit nur einmal gebaut wird.
    - Einen CVE-Hinweis der IDE zu springdoc habe ich als bekannte Grenze dokumentiert. Die neueste Version ist bereits eingesetzt.
+9. **Abschluss:**
+   - Die optionale Stufe 6 (Docker) habe ich bewusst weggelassen.
+   - Die README habe ich auf vier Abschnitte gekürzt: Start, Annahmen, Verrechnungsreihenfolge, Nächste Schritte.
+   - Die Details liegen jetzt in `docs/details.md`.
