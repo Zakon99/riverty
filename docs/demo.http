@@ -1,0 +1,246 @@
+### Demo-Walkthrough Buchungsservice
+# Ausführbar in IntelliJ IDEA (HTTP Client). Requests der Reihe nach ausführen.
+# Voraussetzung: Anwendung mit Demo-Profil gestartet:
+#   ./mvnw spring-boot:run -Dspring-boot.run.profiles=demo
+# Die Erwartungswerte in den Kommentaren gelten für eine FRISCHE Datenbank (vorher ./data löschen).
+# Ids werden über Response-Handler übernommen. Bei einem zweiten Durchlauf antworten die Buchungen
+# mit 200 (Replay) statt 201, Stammdaten mit 409 (Duplikat) – beides ist gewolltes Verhalten.
+
+@baseUrl = http://localhost:8080/api
+
+# =====================================================================
+# Teil 1 – Beteiligte und Konto
+# =====================================================================
+
+### 1.1 Kreditor anlegen (201; bei erneutem Aufruf 409 mit vorhandeneId)
+POST {{baseUrl}}/kreditoren
+Content-Type: application/json
+
+{
+  "kreditorennummer": "K-1001",
+  "name": "Beispiel Forderungsmanagement GmbH"
+}
+
+> {% client.global.set("kreditorId", response.body.id ?? response.body.vorhandeneId); %}
+
+### 1.2 Debitor anlegen (201)
+POST {{baseUrl}}/debitoren
+Content-Type: application/json
+
+{
+  "vorname": "Jörg",
+  "nachname": "Müller",
+  "geburtsdatum": "1980-05-17",
+  "plz": "10115"
+}
+
+> {% client.global.set("debitorId", response.body.id ?? response.body.vorhandeneId); %}
+
+### 1.3 Dublette: andere Schreibweise derselben Person → 409 mit vorhandeneId
+POST {{baseUrl}}/debitoren
+Content-Type: application/json
+
+{
+  "vorname": " JOERG ",
+  "nachname": "MÜLLER",
+  "geburtsdatum": "1980-05-17",
+  "plz": "10115"
+}
+
+### 1.4 Konto anlegen – Kreditor Pflicht, Debitor optional (201)
+POST {{baseUrl}}/konten
+Content-Type: application/json
+
+{
+  "aktenzeichen": "AZ-2026-0001",
+  "kreditorId": {{kreditorId}}
+}
+
+> {% client.global.set("neuesKontoId", response.body.id ?? response.body.vorhandeneId); %}
+
+### 1.5 Debitor nachträglich zuordnen (201)
+POST {{baseUrl}}/konten/{{neuesKontoId}}/debitoren
+Content-Type: application/json
+
+{
+  "debitorId": {{debitorId}},
+  "zugeordnetVon": "sachbearbeiter"
+}
+
+### 1.6 Suche nach Kreditorennummer
+GET {{baseUrl}}/konten?kreditorennummer=K-1001
+
+### 1.7 Suche ohne Parameter → 400 (ProblemDetail)
+GET {{baseUrl}}/konten
+
+### 1.8 Demo-Konto suchen (Ids für Teil 2 und 3 merken)
+GET {{baseUrl}}/konten?aktenzeichen=DEMO-0001
+
+> {%
+    client.global.set("kontoId", response.body[0].id);
+    client.global.set("max", response.body[0].debitorIds[0]);
+    client.global.set("erika", response.body[0].debitorIds[1]);
+%}
+
+### 1.9 Kontoansicht: Saldo 1080.00, Kreditor, Debitoren mit Guthaben, Historie
+GET {{baseUrl}}/konten/{{kontoId}}
+
+# =====================================================================
+# Teil 2 – Sollbuchung und Zahlung
+# =====================================================================
+
+### 2.1 Offene Posten in Verrechnungsreihenfolge (§ 367: Gebühren → Zinsen → Hauptforderung)
+GET {{baseUrl}}/konten/{{kontoId}}/offene-posten
+
+### 2.2 Validierung: Betrag 0 und Währung USD → 400 mit feldfehler
+POST {{baseUrl}}/konten/{{kontoId}}/zahlungen
+Content-Type: application/json
+
+{
+  "debitorId": {{max}},
+  "betrag": 0,
+  "waehrung": "USD",
+  "valuta": "2026-03-10",
+  "clientRequestId": "demo-ungueltig"
+}
+
+### 2.3 Max zahlt 100 € → Gebühren 30, Zinsen 50, Hauptforderung 20; Saldo 980.00
+POST {{baseUrl}}/konten/{{kontoId}}/zahlungen
+Content-Type: application/json
+
+{
+  "debitorId": {{max}},
+  "betrag": 100,
+  "waehrung": "EUR",
+  "valuta": "2026-03-10",
+  "clientRequestId": "demo-zahlung-max"
+}
+
+> {% client.global.set("zahlungMax", response.body.id); %}
+
+### 2.4 Derselbe Request noch einmal → 200 (Replay), keine zweite Buchung
+POST {{baseUrl}}/konten/{{kontoId}}/zahlungen
+Content-Type: application/json
+
+{
+  "debitorId": {{max}},
+  "betrag": 100.00,
+  "waehrung": "EUR",
+  "valuta": "2026-03-10",
+  "clientRequestId": "demo-zahlung-max"
+}
+
+### 2.5 Gleiche clientRequestId, anderer Betrag → 409 (Idempotenz-Konflikt)
+POST {{baseUrl}}/konten/{{kontoId}}/zahlungen
+Content-Type: application/json
+
+{
+  "debitorId": {{max}},
+  "betrag": 200,
+  "waehrung": "EUR",
+  "valuta": "2026-03-10",
+  "clientRequestId": "demo-zahlung-max"
+}
+
+### 2.6 Erika zahlt 1000 € → Hauptforderung bezahlt, Überzahlung 20 € als Guthaben bei Erika; Saldo -20.00
+POST {{baseUrl}}/konten/{{kontoId}}/zahlungen
+Content-Type: application/json
+
+{
+  "debitorId": {{erika}},
+  "betrag": 1000,
+  "waehrung": "EUR",
+  "valuta": "2026-03-15",
+  "clientRequestId": "demo-zahlung-erika"
+}
+
+### 2.7 Neue Zinsen 15 € → keine automatische Verrechnung mit Altguthaben; Saldo -5.00
+POST {{baseUrl}}/konten/{{kontoId}}/sollbuchungen
+Content-Type: application/json
+
+{
+  "art": "ZINSEN",
+  "betrag": 15,
+  "waehrung": "EUR",
+  "valuta": "2026-04-01",
+  "clientRequestId": "demo-zinsen-april"
+}
+
+### 2.8 Kontoansicht: Erika hat 20.00 Guthaben, Zinsen 15 offen
+GET {{baseUrl}}/konten/{{kontoId}}
+
+# =====================================================================
+# Teil 3 – Verrechnung und Storno
+# =====================================================================
+
+### 3.1 Explizite Verrechnung → Erikas Guthaben deckt die Zinsen 15; Guthaben Erika 5.00
+POST {{baseUrl}}/konten/{{kontoId}}/verrechnung
+
+### 3.2 Alle Verrechnungen (persistiert, nachvollziehbar)
+GET {{baseUrl}}/konten/{{kontoId}}/verrechnungen
+
+### 3.3 Storno von Max' Zahlung (Rücklastschrift) → 3 Aufhebungen, Posten wieder offen; Saldo 95.00
+POST {{baseUrl}}/konten/{{kontoId}}/buchungen/{{zahlungMax}}/storno
+Content-Type: application/json
+
+{
+  "grund": "RUECKLASTSCHRIFT",
+  "bemerkung": "Lastschrift mangels Deckung zurückgegeben",
+  "ausloeser": "bank-import",
+  "clientRequestId": "demo-storno-max"
+}
+
+> {% client.global.set("stornoMax", response.body.id); %}
+
+### 3.4 Doppelstorno mit neuer clientRequestId → 409
+POST {{baseUrl}}/konten/{{kontoId}}/buchungen/{{zahlungMax}}/storno
+Content-Type: application/json
+
+{
+  "grund": "RUECKLASTSCHRIFT",
+  "ausloeser": "bank-import",
+  "clientRequestId": "demo-storno-max-2"
+}
+
+### 3.5 Storno eines Stornos → 409
+POST {{baseUrl}}/konten/{{kontoId}}/buchungen/{{stornoMax}}/storno
+Content-Type: application/json
+
+{
+  "grund": "FEHLBUCHUNG",
+  "ausloeser": "sachbearbeiter",
+  "clientRequestId": "demo-storno-storno"
+}
+
+### 3.6 Ausbuchung versuchen → 422, weil Erika noch 5 € Guthaben hat
+POST {{baseUrl}}/konten/{{kontoId}}/ausbuchung
+Content-Type: application/json
+
+{
+  "grund": "UNEINBRINGLICH",
+  "ausloeser": "sachbearbeiter",
+  "clientRequestId": "demo-ausbuchung-versuch"
+}
+
+### 3.7 Guthaben verteilen → 5 € auf die Gebühren (§ 367)
+POST {{baseUrl}}/konten/{{kontoId}}/verrechnung
+
+### 3.8 Offene Posten: Gebühren 25, Zinsen 50, Hauptforderung 20 = 95.00
+GET {{baseUrl}}/konten/{{kontoId}}/offene-posten
+
+### 3.9 Ausbuchung des gesamten Rests (kein Betrag im Request) → 95.00, Valuta heute; Saldo 0.00
+POST {{baseUrl}}/konten/{{kontoId}}/ausbuchung
+Content-Type: application/json
+
+{
+  "grund": "UNEINBRINGLICH",
+  "bemerkung": "Schuldner unbekannt verzogen",
+  "ausloeser": "sachbearbeiter",
+  "clientRequestId": "demo-ausbuchung"
+}
+
+### 3.10 Konsistenzprüfung → OK
+GET {{baseUrl}}/konten/{{kontoId}}/konsistenz
+
+### 3.11 Kontoansicht mit vollständiger Historie (sortiert nach Valuta, Buchungszeit, Id)
+GET {{baseUrl}}/konten/{{kontoId}}
