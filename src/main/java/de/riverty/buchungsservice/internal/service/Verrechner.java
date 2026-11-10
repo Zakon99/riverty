@@ -48,6 +48,13 @@ class Verrechner {
                 verrechnungRepository.nettoJeHabenbuchung(kontoId), Buchung.CHRONOLOGISCH);
     }
 
+    /** Verfügbares Guthaben je zahlendem Debitor; Debitoren ohne Guthaben fehlen. */
+    Map<Long, BigDecimal> guthabenJeDebitor(Long kontoId) {
+        return guthaben(kontoId).stream()
+                .collect(Collectors.groupingBy(rest -> rest.buchung().getDebitor().getId(),
+                        Collectors.reducing(Betrag.NULLWERT, OffenerRest::betrag, BigDecimal::add)));
+    }
+
     /** Verteilt den Rest der Haben-Buchung auf die Posten in deren Reihenfolge und speichert die Verrechnungen. */
     List<Verrechnung> verteilen(OffenerRest haben, List<OffenerRest> posten, Instant zeitpunkt) {
         List<Verrechnung> neu = new ArrayList<>();

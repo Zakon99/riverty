@@ -6,7 +6,6 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
 
 import org.springframework.dao.ConcurrencyFailureException;
 import org.springframework.stereotype.Service;
@@ -65,9 +64,7 @@ public class VerrechnungService {
     @Transactional(readOnly = true)
     public List<DebitorGuthaben> guthaben(Long kontoId) {
         kontoRepository.findeVorhanden(kontoId);
-        Map<Long, BigDecimal> guthabenJeDebitor = verrechner.guthaben(kontoId).stream()
-                .collect(Collectors.groupingBy(rest -> rest.buchung().getDebitor().getId(),
-                        Collectors.reducing(Betrag.NULLWERT, OffenerRest::betrag, BigDecimal::add)));
+        Map<Long, BigDecimal> guthabenJeDebitor = verrechner.guthabenJeDebitor(kontoId);
         return kontoDebitorRepository.findByKontoIdOrderById(kontoId).stream()
                 .map(zuordnung -> zuordnung.getDebitor().getId())
                 .map(id -> new DebitorGuthaben(id, guthabenJeDebitor.getOrDefault(id, Betrag.NULLWERT)))
