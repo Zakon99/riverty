@@ -80,3 +80,7 @@ Bei der Planfreigabe habe ich zusätzlich festgelegt:
    - Wegen des geringen Risikos mit verkürzter Agent-Kette: Die Hauptsession schreibt, der Product Manager prüft gegen den Auftrag, ich reviewe.
    - Die H2-Konsole kam als kleine Abhängigkeit dazu.
    - Den Demo-Ablauf aus `docs/demo.http` habe ich vor dem Schreiben gegen die laufende Anwendung durchgespielt.
+8. **Stufe 4 und 5 (CI, SonarQube Cloud):**
+   - Vor dem ersten CI-Lauf fiel auf, dass `mvnw` im Repo nicht ausführbar war. Unter Linux wäre der Build sofort gescheitert, lokal unter Windows war das nicht sichtbar.
+   - SonarQube Cloud habe ich selbst eingerichtet. Den dabei erzeugten Vorlagen-Workflow habe ich auf Vorschlag der KI in die bestehende CI integriert, damit nur einmal gebaut wird.
+   - Einen CVE-Hinweis der IDE zu springdoc habe ich als bekannte Grenze dokumentiert. Die neueste Version ist bereits eingesetzt.

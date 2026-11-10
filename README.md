@@ -1,6 +1,7 @@
 # Buchungsservice
 
 [![CI](https://github.com/Zakon99/riverty/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Zakon99/riverty/actions/workflows/ci.yml)
+[![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=Zakon99_riverty&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=Zakon99_riverty)
 
 Kleiner Buchungsservice für Forderungskonten, entstanden als Case Study für Riverty (Team Cosima Accounting). Nur Backend: Java 21, Spring Boot 4, REST-API.
 
@@ -189,7 +190,7 @@ Die Zugangsdaten der lokalen H2-Datenbank (`sa`, leeres Passwort) stehen der Ein
 
 ## Codequalität: SonarQube Cloud
 
-Für die statische Analyse ist SonarQube Cloud vorgesehen, die Einbindung in die CI folgt als eigener Schritt. Das ist hier kostenlos, weil das Repository öffentlich ist. Für privaten Code in Produktion wäre ein kostenpflichtiger Plan oder ein selbst gehosteter SonarQube Server nötig.
+Die statische Analyse läuft über [SonarQube Cloud](https://sonarcloud.io/summary/new_code?id=Zakon99_riverty) als Schritt in der CI (`./mvnw -B verify sonar:sonar`), inklusive Coverage aus dem JaCoCo-XML-Report. Der Schritt läuft nur, wenn das Repository-Secret `SONAR_TOKEN` gesetzt ist. Bei Pull Requests aus Forks fehlt es, dann wird nur gebaut und getestet. Die Automatic Analysis von SonarQube Cloud ist abgeschaltet, damit nicht zwei Analysen kollidieren. Das ist hier kostenlos, weil das Repository öffentlich ist. Für privaten Code in Produktion wäre ein kostenpflichtiger Plan oder ein selbst gehosteter SonarQube Server nötig.
 
 ## Bekannte Grenzen
 
@@ -198,6 +199,7 @@ Diese Punkte sind bewusst nicht umgesetzt. Für eine Case Study stehen Aufwand u
 - **Beträge mit extremem Exponenten:** Ein Betrag wie `1e1000000000` passiert `@Positive` und das Längenlimit von Jackson, weil der Text kurz ist. `Betrag` rundet zuerst auf zwei Nachkommastellen und prüft danach die Obergrenze. Das Runden einer Zahl mit Milliarden Stellen kann sehr viel CPU und Speicher kosten. Abhilfe wäre, vor dem Runden die Größenordnung zu prüfen oder die erlaubte Skala schon beim JSON-Parsen zu begrenzen.
 - **Keine `feldfehler` bei Typfehlern:** Bei `"betrag": "abc"`, einem unbekannten Enum-Wert oder einem falschen Datumsformat kommt 400 mit allgemeinem Text, aber ohne Feldangabe.
 - **Kein `Location`-Header** bei 201-Antworten.
+- **Gemeldete Schwachstelle in springdoc:** Der Abhängigkeits-Scan der IDE meldet für `springdoc-openapi-starter-webmvc-ui` 3.2.0 eine CVE (CVE-2026-110879), möglicherweise über eine transitive Abhängigkeit. 3.2.0 ist die aktuelle Version, ein Update ist derzeit nicht möglich. Swagger UI dient hier nur der Demo und ließe sich in Produktion abschalten (`springdoc.swagger-ui.enabled=false`) oder ganz entfernen. Dependabot meldet neue Versionen automatisch.
 - **Keine Paginierung:** Weder die Suche noch die Buchungshistorie sind paginiert.
 - **Kontoansicht ohne Snapshot:** Saldo, Guthaben und Historie werden in einer Lesetransaktion, aber mit getrennten Abfragen und ohne Sperre gelesen. Wird parallel gebucht, kann die Ansicht einen Zwischenstand zeigen. Die Konsistenzprüfung und alle schreibenden Vorgänge sind davon nicht betroffen.
 
