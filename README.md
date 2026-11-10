@@ -73,6 +73,26 @@ Den Demo-Ablauf in der Reihenfolge des Interviews enthält [`docs/demo.http`](do
 
 Die Folie der Aufgabenstellung nennt als Beispiel Hauptforderung → Zinsen → Gebühren. Der Service folgt bewusst der gesetzlichen Reihenfolge aus § 367 Abs. 1 BGB: erst Kosten, dann Zinsen, zuletzt die Hauptleistung. Annahme: Inkassogebühren gelten als Kosten im Sinne von § 367. Die Reihenfolge ist an einer Stelle festgelegt (`Buchungsart.tilgungsrang()`).
 
+## Skalierung und Massendaten
+
+Was heute schon trägt:
+
+- **Gespeicherter Saldo:** Der Saldo wird in derselben Transaktion fortgeschrieben, Lesen kostet keine Summenbildung über alle Buchungen.
+- **Verrechnung ohne N+1:** Offene Beträge und verteilte Beträge kommen aus zwei aggregierten Abfragen, nicht aus einer Abfrage pro Posten.
+- **Sperre pro Konto:** Die pessimistische Sperre gilt nur für das betroffene Konto. Buchungen auf verschiedenen Konten laufen parallel.
+- **Idempotenz:** Über `clientRequestId` lassen sich abgebrochene Importe gefahrlos wiederholen.
+- **Indizes** auf allen Fremdschlüsseln (Konto, Kreditor, Debitor, Verrechnung).
+
+Was für Massendaten folgen würde:
+
+- **Bulk-Import von Zahlungen** (z. B. CAMT.053) mit Spring Batch, chunk-basiert und idempotent über die Bankreferenz.
+- **SEQUENCE statt IDENTITY** mit Pooled-Optimizer und `hibernate.jdbc.batch_size`, damit Hibernate Inserts per JDBC-Batching bündeln kann.
+- **Partitionierung der Verarbeitung nach Konto:** Jeder Worker übernimmt eine Menge von Konten, Sperrkonflikte entfallen.
+- **Konsistenzprüfung als Nacht-Batch:** mengenbasiert per SQL über alle Konten statt Konto für Konto.
+- **PostgreSQL mit Tabellenpartitionierung** für Buchungen und Verrechnungen.
+- **Paginierung der Historie.**
+- **Outbox für Events,** damit nachgelagerte Systeme zuverlässig und transaktionssicher informiert werden.
+
 ## Nächste Schritte
 
 - Ausbuchung einzelner Posten
