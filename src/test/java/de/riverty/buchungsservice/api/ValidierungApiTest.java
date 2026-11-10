@@ -15,6 +15,7 @@ import java.util.stream.Stream;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
@@ -114,6 +115,20 @@ class ValidierungApiTest extends ApiTestBasis {
         assertThat(anzahlBuchungen()).isEqualTo(buchungen);
         postJson(zahlungen(kontoId), zahlungJson(debitorId, "10.00", "2026-03-01", "betrag-2"))
                 .andExpect(status().isCreated());
+    }
+
+    @ParameterizedTest(name = "betrag {0}")
+    @ValueSource(strings = {"1e1000000000", "1e-1000000000", "9999999999999.995"})
+    @Timeout(1)
+    @DisplayName("Extreme Beträge über die API → 400 in unter einer Sekunde (kein DoS), keine Buchung")
+    void extremerBetragUeberApi(String betrag) throws Exception {
+        int buchungen = anzahlBuchungen();
+
+        assertProblem(postJson(sollbuchungen(kontoId), sollJson("ZINSEN", betrag, "2026-02-01", "extrem-1")),
+                400, "validierung");
+        assertProblem(postJson(zahlungen(kontoId), zahlungJson(debitorId, betrag, "2026-03-01", "extrem-2")),
+                400, "validierung");
+        assertThat(anzahlBuchungen()).isEqualTo(buchungen);
     }
 
     private static void pruefeBetragFehler(ResultActions antwort, String feld) throws Exception {

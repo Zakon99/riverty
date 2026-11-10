@@ -7,6 +7,7 @@ import java.math.BigDecimal;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -82,5 +83,28 @@ class BetragTest {
         assertThatThrownBy(() -> Betrag.of("0"))
                 .isInstanceOf(FachlicheException.class)
                 .isInstanceOf(RuntimeException.class);
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @ValueSource(strings = {"1e1000000000", "1e-1000000000", "-1e1000000000", "9999999999999.995"})
+    @Timeout(1)
+    @DisplayName("Extreme Exponenten werden vor dem Runden schnell abgelehnt (kein DoS); 9999999999999.995 nach Rundung")
+    void extremeGroessenordnungWirdSchnellAbgelehnt(String roh) {
+        assertThatThrownBy(() -> Betrag.of(roh)).isInstanceOf(UngueltigerBetragException.class);
+        assertThatThrownBy(() -> new Betrag(new BigDecimal(roh))).isInstanceOf(UngueltigerBetragException.class);
+    }
+
+    @ParameterizedTest(name = "{0} -> {1}")
+    @CsvSource({"0.005, 0.01", "0.00500000000000000001, 0.01", "9999999999999.994, 9999999999999.99"})
+    @DisplayName("Grenzwerte der Groessenordnungspruefung bleiben gueltig")
+    void grenzwerteDerGroessenordnung(String roh, String erwartet) {
+        assertThat(Betrag.of(roh).wert()).isEqualByComparingTo(erwartet);
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @ValueSource(strings = {"0.0009", "0.004", "0.00499999999999"})
+    @DisplayName("Werte unter 0.005 sind ungueltig, auch wenn sie die Groessenordnungspruefung passieren")
+    void werteUnterEinemHalbenCentSindUngueltig(String roh) {
+        assertThatThrownBy(() -> Betrag.of(roh)).isInstanceOf(UngueltigerBetragException.class);
     }
 }
