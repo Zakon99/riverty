@@ -20,6 +20,16 @@ git config core.hooksPath .githooks
 
 Die Zugangsdaten der lokalen H2-Datenbank (`sa`, leeres Passwort) stehen der Einfachheit halber im Klartext in `application.yml`. In produktivem Code stünden Credentials natürlich nicht im Klartext im Repository. Sie würden über Umgebungsvariablen oder einen Secret-Store (z. B. Vault, Kubernetes Secrets oder einen Cloud Secrets Manager) injiziert.
 
+## Bekannte Grenzen
+
+Diese Punkte sind bewusst nicht umgesetzt. Für eine Case Study stehen Aufwand und Nutzen in keinem guten Verhältnis, in einem produktiven System würden sie angegangen.
+
+- **Beträge mit extremem Exponenten:** Ein Betrag wie `1e1000000000` passiert `@Positive` und das Längenlimit von Jackson, weil der Text kurz ist. `Betrag` rundet zuerst auf zwei Nachkommastellen und prüft danach die Obergrenze. Das Runden einer Zahl mit Milliarden Stellen kann sehr viel CPU und Speicher kosten. Abhilfe wäre, vor dem Runden die Größenordnung zu prüfen oder die erlaubte Skala schon beim JSON-Parsen zu begrenzen.
+- **Keine `feldfehler` bei Typfehlern:** Bei `"betrag": "abc"`, einem unbekannten Enum-Wert oder einem falschen Datumsformat kommt 400 mit allgemeinem Text, aber ohne Feldangabe.
+- **Kein `Location`-Header** bei 201-Antworten.
+- **Keine Paginierung:** Weder die Suche noch die Buchungshistorie sind paginiert.
+- **Kontoansicht ohne Snapshot:** Saldo, Guthaben und Historie werden in einer Lesetransaktion, aber mit getrennten Abfragen und ohne Sperre gelesen. Wird parallel gebucht, kann die Ansicht einen Zwischenstand zeigen. Die Konsistenzprüfung und alle schreibenden Vorgänge sind davon nicht betroffen.
+
 ## Annahmen
 
 ### Verrechnung
@@ -57,14 +67,71 @@ Die Zugangsdaten der lokalen H2-Datenbank (`sa`, leeres Passwort) stehen der Ein
 ### Beteiligte und Konto
 - Der Dublettenschlüssel eines Debitors besteht aus den getrennt normalisierten Feldern. „Anna Lena / Schmidt“ und „Anna / Lena Schmidt“ sind daher verschiedene Personen. Normalisiert wird nur wie spezifiziert (trim, lowercase, Umlaute, ß, Leerzeichen). Akzente und Bindestriche bleiben unverändert. Der Feldtrenner `|` und das Maskierungszeichen `\` werden in den Feldwerten maskiert. So können auch Namen, die selbst ein `|` enthalten, keine falsche Dublette erzeugen.
 - Kreditorennummer und Aktenzeichen werden getrimmt, Groß- und Kleinschreibung bleibt erhalten. Ein doppeltes Aktenzeichen liefert wie bei Kreditor und Debitor 409 mit der Id des vorhandenen Kontos.
-- Wird ein Debitor einem Konto zugeordnet, dem er schon zugeordnet ist, antwortet der Service mit 409.
+- Wird ein Debitor einem Konto zugeordnet, dem er schon zugeordnet ist, antwortet der Service mit 409 und `vorhandeneId` = Id des Debitors.
 - Wird bei der Kontoanlage direkt ein Debitor zugeordnet, steht in `zugeordnetVon` der Wert „Kontoanlage“, weil der Request dafür kein Feld hat.
 
-### Fehlerfälle
-- Ein Betrag, der nach dem Runden 0.00 ergibt (z. B. 0.004), ist aus Client-Sicht eine ungültige Eingabe wie 0 oder ein negativer Betrag und ergibt 400.
-- Beträge haben höchstens 13 Vorkommastellen, passend zur Spalte `NUMERIC(15,2)`. Größere Beträge ergeben ebenfalls 400. Entscheidend ist der gerundete Wert: 9999999999999.995 wird abgelehnt.
-- Storno und Ausbuchung: Fehlt `grund` oder ist `ausloeser` leer, antwortet der Service mit 422. Diese Prüfung läuft vor der Idempotenz- und der Kontoprüfung, eine abgelehnte `clientRequestId` bleibt also frei.
+### REST-API: Antworten
+- Sollbuchung, Zahlung, Storno und Ausbuchung antworten mit **201** bei einer neuen Buchung und mit **200** beim Replay (gleiche `clientRequestId`, gleicher Inhalt). Der Body ist in beiden Fällen dieselbe Buchung.
+- `POST /api/konten/{id}/verrechnung` antwortet immer mit 200 und der Liste der neu erzeugten Verrechnungen, auch wenn die Liste leer ist. Es entsteht keine einzeln adressierbare Ressource.
+- Format: Felder mit dem Wert `null` werden weggelassen. Beträge sind JSON-Zahlen mit genau zwei Nachkommastellen (`100.00`, `-20.00`). Zeitstempel sind ISO-Instants in UTC, `valuta` und `geburtsdatum` ISO-Daten (`yyyy-MM-dd`).
+- Die Konto-Antwort bei Anlage und Suche enthält nur die `debitorIds`. Die vollständigen Debitor-Daten mit Guthaben und Zuordnung liefert die Kontoansicht `GET /api/konten/{id}`.
+- Sortierung der Listen:
+  - Suche: nach Id
+  - Buchungshistorie: nach Valuta, dann Buchungszeit, dann Id
+  - `/offene-posten`: in der Verrechnungsreihenfolge nach § 367
+  - `/verrechnungen`: nach Id
+- 201-Antworten setzen keinen `Location`-Header (siehe „Bekannte Grenzen“). Die angelegte Ressource steht im Body.
+
+### REST-API: Suche
+- `GET /api/konten?aktenzeichen=&kreditorennummer=`: Mindestens ein nicht leerer Parameter ist Pflicht, sonst gibt es 400 ohne `feldfehler`. Die Pflicht prüft der Service selbst, nicht nur der Controller. So kann auch ein anderer Aufrufer keine ungefilterte Liste aller Konten abrufen.
+- Ein leerer Parameter gilt als nicht angegeben. `?aktenzeichen=&kreditorennummer=K-1` sucht deshalb nur nach der Kreditorennummer.
+- Sind beide Parameter angegeben, werden sie mit UND verknüpft. Die Werte werden getrimmt und müssen exakt passen, Groß- und Kleinschreibung zählt. Kein Treffer ergibt 200 mit leerer Liste.
+
+### REST-API: Validierung und Fehler
+- Fehler werden einheitlich als `ProblemDetail` (RFC 9457, `application/problem+json`) geliefert, mit `type`, `title`, `status`, `detail` und `instance`.
+  - Fachliche Kategorien in `type`: `urn:buchungsservice:validierung` (400), `…:nicht-gefunden` (404), `…:duplikat` (409), `…:konflikt` (409), `…:fachregel` (422).
+  - Technische Kategorien: `urn:buchungsservice:anfrage` für sonstige Client-Fehler (z. B. 405, 406, 415) und `urn:buchungsservice:intern` für 500. Bei 500 enthält die Antwort nur einen neutralen Text, die Details stehen im Error-Log.
+  - Bei einem Duplikat gibt es zusätzlich `vorhandeneId`, bei Validierungsfehlern eine Liste `feldfehler` mit `{feld, meldung}`.
+- Bean Validation prüft vor jeder fachlichen Prüfung. Ein ungültiger Body an ein nicht existierendes Konto ergibt daher 400, nicht 404.
+- Pflichtfelder über die im Auftrag genannten hinaus: `debitorId` bei der Zahlung, `kreditorId` bei der Kontoanlage, `debitorId` und `zugeordnetVon` bei der Zuordnung, `plz` und `art`. Fehlen sie, gibt es 400.
+- `waehrung` muss exakt `EUR` lauten, `eur` oder `USD` ergeben 400.
+- Die Sollbuchung nimmt als `art` nur `HAUPTFORDERUNG`, `ZINSEN` oder `GEBUEHREN` an (eigenes API-Enum `Sollart`). Jeder unbekannte Enum-Wert ergibt 400, etwa `ZAHLUNG` als Sollart oder `FOO` als Grund. Swagger zeigt nur die gültigen Werte an. Die fachliche Prüfung im Service bleibt als zweite Absicherung.
+- Storno und Ausbuchung: Fehlen `grund` oder `ausloeser`, gibt es über die API 400 (Bean Validation). Im Service selbst gilt 422 als zweite Absicherung. Beide Prüfungen laufen vor der Idempotenz- und der Kontoprüfung, eine abgelehnte `clientRequestId` bleibt also frei.
+- Ebenfalls 400 (`validierung`): unlesbares JSON, fehlender Body, falsches Datumsformat, nicht-numerische Pfad-Id (z. B. `/api/konten/abc`). Diese Fälle haben keine `feldfehler` (siehe „Bekannte Grenzen“).
+- Beträge:
+  - Ein Betrag, der nach dem Runden 0.00 ergibt (z. B. 0.004), ist aus Client-Sicht eine ungültige Eingabe wie 0 oder ein negativer Betrag und ergibt 400.
+  - Beträge haben höchstens 13 Vorkommastellen, passend zur Spalte `NUMERIC(15,2)`. Größere Beträge ergeben ebenfalls 400. Entscheidend ist der gerundete Wert: 9999999999999.995 wird abgelehnt.
+  - In beiden Fällen heißt der Eintrag in `feldfehler` `betrag`.
+- Textfelder haben eine Höchstlänge passend zum Datenbankschema (`@Size`). Zu lange Werte ergeben 400 mit `feldfehler` statt eines Datenbankfehlers. Geprüft wird der Rohwert vor dem Trimmen.
+
+  | Feld | Höchstlänge |
+  |---|---|
+  | Kreditorennummer, Aktenzeichen | 50 |
+  | Name des Kreditors | 200 |
+  | Vor- und Nachname, `zugeordnetVon`, `ausloeser`, `clientRequestId` | 100 |
+  | PLZ | 10 |
+  | Bemerkung | 500 |
+- `@Past` für das Geburtsdatum vergleicht mit dem Datum der injizierten `Clock` (UTC). Ein Geburtsdatum „heute“ ergibt 400.
 - Eine Zahlung mit einer nicht existierenden `debitorId` ergibt 404. 422 gibt es, wenn der Debitor existiert, aber dem Konto nicht zugeordnet ist.
+- Bei 409 wegen paralleler Änderung oder Lock-Timeout ist das `detail` ein neutraler Text. Die technische Ursache wird geloggt.
+
+### Demo-Daten (Profil `demo`)
+
+| Objekt | Werte |
+|---|---|
+| Kreditor | `K-DEMO`, „Musterstadt Inkasso GmbH“ |
+| Debitor | Max Mustermann, geb. 14.03.1985, PLZ 10115; zugeordnet bei der Kontoanlage („Kontoanlage“) |
+| Debitor | Erika Mustermann, geb. 22.08.1987, PLZ 10115; zugeordnet mit `zugeordnetVon` „demo“ |
+| Konto | `DEMO-0001` |
+| Sollbuchungen | Hauptforderung 1.000,00 € (Valuta 15.01.2026), Gebühren 30,00 € (01.02.2026), Zinsen 50,00 € (01.03.2026) |
+| `clientRequestId`s | `demo-hauptforderung`, `demo-gebuehren`, `demo-zinsen` |
+| Saldo | 1.080,00 € |
+
+- Bewusst gibt es keine Zahlung, die wird in der Demo live gebucht. Ohne Profil `demo` und im Testprofil wird nichts geladen.
+- Der Lader ist idempotent und läuft bei einem Neustart mit der Datei-DB ohne Duplikate. Er arbeitet ausschließlich über die Services:
+  - Vorhandene Datensätze werden über die Duplikat-Antwort wiederverwendet.
+  - Sollbuchungen laufen über feste `clientRequestId`s (Replay).
+  - Existiert `DEMO-0001` bereits ohne Max, ordnet der Lader ihn mit `zugeordnetVon` „demo“ zu.
 
 ### Valuta
 - Valuten dürfen in der Zukunft liegen und vom Buchungstag abweichen.
@@ -106,7 +173,7 @@ Die ursprünglich geplante Invariante „Saldo = Σ offene Posten − Σ Guthabe
 - Ein Test mit zwei Threads stellt sicher, dass zwei gleichzeitige Zahlungen beide gebucht werden und der Saldo stimmt.
 
 ### Prüfreihenfolge
-- **Zahlung:** Konto existiert (404) → `debitorId` angegeben (422) → Debitor existiert (404) → Debitor dem Konto zugeordnet (422).
+- **Zahlung:** `debitorId` angegeben (über die API per Bean Validation 400, im Service selbst 422 als zweite Absicherung) → Konto existiert (404) → Debitor existiert (404) → Debitor dem Konto zugeordnet (422).
 - **Storno:** Konto existiert (404) → Buchung existiert (404) → Buchung gehört zum Konto (422) → nicht bereits storniert (409) → kein Storno eines Stornos (409) → keine aktive Ausbuchungs-Verrechnung (422).
 - **Ausbuchung:** Sind keine Posten offen, meldet der Service „nichts offen“ (422). Das wird vor der Guthabenprüfung geprüft.
 

@@ -55,6 +55,8 @@ Bei der Planfreigabe habe ich zusätzlich festgelegt:
 | Zeitzone für „heute“ (Ausbuchungs-Valuta) | Europe/Berlin (deutscher Geschäftstag) | UTC, für ein weltweit einheitliches System |
 | Parallele Buchungen auf ein Konto | Optimistisches Locking: Die zweite parallele Buchung bekommt 409, der Client wiederholt | Pessimistisches Locking pro Konto mit `@Version` als Absicherung. Parallele Zahlungen werden nacheinander gebucht, beide erfolgreich, abgesichert durch einen Test mit zwei Threads |
 | Review-Findings | Schärfere Prüfung der Error-Logs in Tests, Sonar-Kleinkram sofort beheben | Log-Prüfung nicht verschärft (wenig Mehrwert). Sonar-Findings erst in Stufe 5, wenn SonarQube Cloud läuft |
+| Review Stufe 2: Betrag mit extremem Exponenten | Größenordnung vor dem Runden prüfen (DoS-Schutz) | Nicht umgesetzt, als bekannte Grenze in der README. Der Randfall ist für eine Case Study zu speziell |
+| Review Stufe 2: optionale Erweiterungen | `feldfehler` bei Typfehlern, `Location`-Header | Keine neuen Features. Nur Fehlerbehebungen (`@Size` gegen 500) und Aufräumarbeiten |
 | Pre-Push-Hook | Einmalig `--no-verify` für den Fundament-Commit angeboten | Kein Überspringen. Fundament-Commits gehen zusammen mit Stufe 1 raus, wenn alles grün ist |
 
 ## Zentrale Prompts (Kurzform)
@@ -63,3 +65,10 @@ Bei der Planfreigabe habe ich zusätzlich festgelegt:
 2. **Planfreigabe:** Arbeit in Sprints mit Review vor jedem Commit. Offene Punkte entschieden: 422 bei Storno einer ausgebuchten Sollbuchung, Valuta-Regeln für Storno und Ausbuchung, Umfang der automatischen Verrechnung, Zahlung ohne offene Posten, Umfang des Idempotenz-Hashes.
 3. **Akzeptanzkriterien Stufe 1:** Der Product-Manager-Agent hat 50 Given/When/Then-Kriterien mit konkreten Rechenbeispielen abgeleitet und zehn Lücken im Auftrag als offene Fragen gemeldet. Meine Entscheidungen: 400 für einen Betrag, der auf 0 rundet; 404 bei unbekanntem Debitor; 422 bei Storno über Kontogrenzen; 409 bei doppelter Debitor-Zuordnung; No-op bei expliziter Verrechnung ohne Wirkung; 422 bei Ausbuchung trotz Guthaben; neue Konsistenz-Invariante 2; UTC als Zeitzone.
 4. **Umsetzung Stufe 1:** Der Tester hat 92 Testmethoden aus den Kriterien geschrieben, bevor es Produktivcode gab (rot). Der Coder hat implementiert, bis alle Tests grün waren. Der Reviewer fand keine fachlichen Fehler, aber Lücken: Parallelverhalten falsch dokumentiert, keine Obergrenze für Beträge, ungetestete Constraint-Pfade und weitere Randfälle. Ich habe entschieden, welche Findings jetzt umgesetzt werden und welche später.
+5. **Akzeptanzkriterien Stufe 2:** 41 Kriterien für REST-Schicht, ProblemDetail, Idempotenz über HTTP, ArchUnit und Demo-Profil. Meine Entscheidungen:
+   - 400 für alle fehlenden Pflichtfelder, auch für die im Auftrag nicht genannten
+   - eigenes API-Enum `Sollart`, und jeder unbekannte Enum-Wert ergibt 400
+   - bei doppelter Zuordnung liefert der 409 die Debitor-Id
+   - Demo-Konto ohne Zahlung
+   
+   Die Demo-Werte habe ich mir vorab geben lassen und den Interview-Ablauf einmal durchgerechnet.
