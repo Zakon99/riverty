@@ -24,6 +24,13 @@
         <springdoc.version>3.2.0</springdoc.version>
         <archunit.version>1.5.1</archunit.version>
         <jacoco.version>0.8.16</jacoco.version>
+        <sonar-maven-plugin.version>5.8.0.7211</sonar-maven-plugin.version>
+
+        <!-- SonarQube Cloud -->
+        <sonar.organization>zakon99</sonar.organization>
+        <sonar.projectKey>Zakon99_riverty</sonar.projectKey>
+        <sonar.host.url>https://sonarcloud.io</sonar.host.url>
+        <sonar.coverage.jacoco.xmlReportPaths>${project.build.directory}/site/jacoco/jacoco.xml</sonar.coverage.jacoco.xmlReportPaths>
     </properties>
 
     <dependencies>
@@ -44,7 +51,6 @@
             <artifactId>spring-boot-starter-flyway</artifactId>
         </dependency>
         <dependency>
-            <!--TODO: CVE anschauen: https://www.mend.io/vulnerability-database/CVE-2026-110879/?utm_source=Jetbrains-->
             <groupId>org.springdoc</groupId>
             <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
             <version>${springdoc.version}</version>
@@ -77,6 +83,15 @@
     </dependencies>
 
     <build>
+        <pluginManagement>
+            <plugins>
+                <plugin>
+                    <groupId>org.sonarsource.scanner.maven</groupId>
+                    <artifactId>sonar-maven-plugin</artifactId>
+                    <version>${sonar-maven-plugin.version}</version>
+                </plugin>
+            </plugins>
+        </pluginManagement>
         <plugins>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
