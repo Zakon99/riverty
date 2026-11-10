@@ -18,8 +18,6 @@ Voraussetzung: JDK 21. Der Maven Wrapper ist enthalten.
 ./mvnw verify                                            # Build und alle Tests
 ```
 
-Unter PowerShell den Profil-Parameter in Anführungszeichen setzen: `"-Dspring-boot.run.profiles=demo"`.
-
 | | |
 |---|---|
 | Swagger UI | http://localhost:8080/swagger-ui.html |
@@ -31,7 +29,11 @@ JDBC-URL für die H2-Konsole:
 jdbc:h2:file:./data/buchungsservice;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DEFAULT_NULL_ORDERING=HIGH;AUTO_SERVER=TRUE
 ```
 
-Den Demo-Ablauf in der Reihenfolge des Interviews enthält [`docs/demo.http`](docs/demo.http): Beteiligte und Konto → Sollbuchung und Zahlung → Verrechnung und Storno. Die Datei läuft direkt im HTTP-Client von IntelliJ, in VS Code oder auf der Kommandozeile mit [httpyac](https://httpyac.github.io/) (`npx httpyac send docs/demo.http --all`). Ohne diese Werkzeuge lassen sich dieselben Requests über die Swagger UI absetzen. Die Erwartungswerte gelten für eine frische Datenbank, deshalb vorher `./data` löschen.
+Demo-Ablauf: [`docs/demo.http`](docs/demo.http): Beteiligte und Konto → Sollbuchung und Zahlung → Verrechnung und Storno. Die Datei läuft direkt im HTTP-Client von IntelliJ, in VS Code oder auf der Kommandozeile mit [httpyac](https://httpyac.github.io/) (`npx httpyac send docs/demo.http --all`). Ohne diese Werkzeuge lassen sich dieselben Requests über die Swagger UI absetzen. Die Erwartungswerte gelten für eine frische Datenbank, deshalb vorher `./data` löschen.
+
+## Vorgehen
+
+Das Fachmodell habe ich zuerst im Dialog mit Claude entworfen und dann mit Blick auf Wichtigkeit und Zeit priorisiert: Fachkern bzw. Tests → API → Doku → CI → Sonar. Jede Stufe habe ich nach dem Test-First-Ansatz verifiziert und umgebaut. Mit Claude Code habe ich dabei in Sprints gearbeitet, um Fortschritt und Code im Blick zu behalten. Erst nach abgeschlossenem Review wurde committet.
 
 ## Annahmen
 
@@ -85,13 +87,11 @@ Was heute schon trägt:
 
 Was für Massendaten folgen würde:
 
-- **Bulk-Import von Zahlungen** (z. B. CAMT.053) mit Spring Batch, chunk-basiert und idempotent über die Bankreferenz.
+- **Bulk-Import von Zahlungen** mit Spring Batch, chunk-basiert und idempotent über die Bankreferenz.
 - **SEQUENCE statt IDENTITY** mit Pooled-Optimizer und `hibernate.jdbc.batch_size`, damit Hibernate Inserts per JDBC-Batching bündeln kann.
-- **Partitionierung der Verarbeitung nach Konto:** Jeder Worker übernimmt eine Menge von Konten, Sperrkonflikte entfallen.
 - **Konsistenzprüfung als Nacht-Batch:** mengenbasiert per SQL über alle Konten statt Konto für Konto.
 - **PostgreSQL mit Tabellenpartitionierung** für Buchungen und Verrechnungen.
 - **Paginierung der Historie.**
-- **Outbox für Events,** damit nachgelagerte Systeme zuverlässig und transaktionssicher informiert werden.
 
 ## Nächste Schritte
 
@@ -101,5 +101,4 @@ Was für Massendaten folgen würde:
 - Zinsberechnung
 - Authentifizierung, Auslöser aus dem Security-Context
 - PostgreSQL, Integrationstests mit Testcontainers
-- Paginierung der Historie
 - Domain Events / Outbox
