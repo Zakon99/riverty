@@ -58,7 +58,7 @@ class FehlerBehandlung extends ResponseEntityExceptionHandler {
     /** Optimistic/Pessimistic Locking und Lock-Timeouts; die technische Meldung wird nicht nach außen gegeben. */
     @ExceptionHandler(ConcurrencyFailureException.class)
     ResponseEntity<Object> paralleleAenderung(ConcurrencyFailureException ex, WebRequest request) {
-        log.info("Parallele Änderung bei {}: {}", request.getDescription(false), ex.getMessage());
+        log.info("Parallele Änderung bei {}: {}", fuerLog(request), ex.getMessage());
         return antwort(ex, HttpStatus.CONFLICT, "Das Konto wurde parallel geändert. Bitte die Anfrage wiederholen.",
                 request);
     }
@@ -76,7 +76,7 @@ class FehlerBehandlung extends ResponseEntityExceptionHandler {
     /** Unerwartete Fehler: vollständig loggen, nach außen nur eine neutrale Meldung ohne technische Details. */
     @ExceptionHandler(Exception.class)
     ResponseEntity<Object> unerwartet(Exception ex, WebRequest request) {
-        log.error("Unerwarteter Fehler bei {}", request.getDescription(false), ex);
+        log.error("Unerwarteter Fehler bei {}", fuerLog(request), ex);
         return antwort(ex, HttpStatus.INTERNAL_SERVER_ERROR, "Ein unerwarteter Fehler ist aufgetreten.", request);
     }
 
@@ -100,6 +100,11 @@ class FehlerBehandlung extends ResponseEntityExceptionHandler {
     private ResponseEntity<Object> antwort(Exception ex, HttpStatus status, String detail, WebRequest request) {
         return handleExceptionInternal(ex, ProblemDetail.forStatusAndDetail(status, detail), new HttpHeaders(), status,
                 request);
+    }
+
+    /** Request-Beschreibung für das Log ohne Zeilenumbrüche, damit kein Client gefälschte Logzeilen einschleusen kann. */
+    private static String fuerLog(WebRequest request) {
+        return request.getDescription(false).replaceAll("[\r\n]", "_");
     }
 
     private static List<Feldfehler> feldfehler(Exception ex) {
