@@ -51,7 +51,7 @@ class DemoDatenLaderTest {
 
     /** Erwarteter Fachstand nach dem Laden der Demo-Daten, in der Darstellung von {@link #stand(JdbcTemplate)}. */
     private static final List<String> DEMO_STAND = List.of(
-            "kreditor K-DEMO Musterstadt Inkasso GmbH",
+            "kreditor K-DEMO Musterstadt Versandhandel GmbH",
             "debitor Erika Mustermann 1987-08-22 10115",
             "debitor Max Mustermann 1985-03-14 10115",
             "konto DEMO-0001 1080.00",
@@ -116,7 +116,7 @@ class DemoDatenLaderTest {
     @DisplayName("S2-AK-40: laden() gegen halb angelegten Stand (Konto mit Max und Hauptforderung) → vervollstaendigt ohne Duplikate")
     void ladenVervollstaendigtHalbenStand() throws Exception {
         Datenbank.leeren(jdbc);
-        Kreditor kreditor = kreditorService.anlegen("K-DEMO", "Musterstadt Inkasso GmbH");
+        Kreditor kreditor = kreditorService.anlegen("K-DEMO", "Musterstadt Versandhandel GmbH");
         Long max = debitorService.anlegen("Max", "Mustermann", LocalDate.of(1985, 3, 14), "10115").getId();
         Forderungskonto konto = kontoService.anlegen("DEMO-0001", kreditor.getId(), max);
         buchungService.sollbuchen(konto.getId(), new SollbuchungBefehl(Buchungsart.HAUPTFORDERUNG,
@@ -132,7 +132,7 @@ class DemoDatenLaderTest {
     @DisplayName("S2-AK-40: laden() gegen halb angelegten Stand (nur Kreditor und Erika) → vervollstaendigt ohne Duplikate")
     void ladenVervollstaendigtNurStammdaten() throws Exception {
         Datenbank.leeren(jdbc);
-        kreditorService.anlegen("K-DEMO", "Musterstadt Inkasso GmbH");
+        kreditorService.anlegen("K-DEMO", "Musterstadt Versandhandel GmbH");
         debitorService.anlegen("Erika", "Mustermann", LocalDate.of(1987, 8, 22), "10115");
 
         demoDatenLader.laden();
@@ -180,7 +180,7 @@ class DemoDatenLaderTest {
         assertThat(ansicht.path("aktenzeichen").asString()).isEqualTo("DEMO-0001");
         Json.assertBetrag(ansicht.path("saldo"), "1080.00");
         assertThat(ansicht.path("kreditor").path("kreditorennummer").asString()).isEqualTo("K-DEMO");
-        assertThat(ansicht.path("kreditor").path("name").asString()).isEqualTo("Musterstadt Inkasso GmbH");
+        assertThat(ansicht.path("kreditor").path("name").asString()).isEqualTo("Musterstadt Versandhandel GmbH");
 
         JsonNode debitoren = ansicht.path("debitoren");
         assertThat(debitoren.size()).isEqualTo(2);

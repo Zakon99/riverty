@@ -50,7 +50,7 @@ public class DemoDatenLader implements ApplicationRunner {
     }
 
     public void laden() {
-        Long kreditor = vorhandenOderNeu(() -> kreditorService.anlegen("K-DEMO", "Musterstadt Inkasso GmbH").getId());
+        Long kreditor = vorhandenOderNeu(() -> kreditorService.anlegen("K-DEMO", "Musterstadt Versandhandel GmbH").getId());
         Long max = vorhandenOderNeu(() -> debitorService.anlegen("Max", "Mustermann", LocalDate.of(1985, 3, 14),
                 "10115").getId());
         Long erika = vorhandenOderNeu(() -> debitorService.anlegen("Erika", "Mustermann", LocalDate.of(1987, 8, 22),
