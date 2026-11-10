@@ -18,10 +18,15 @@ jobs:
     name: Build und Tests
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      # Leer, wenn das Secret fehlt (z. B. bei Pull Requests aus Forks) – dann läuft nur der Build ohne Analyse.
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          fetch-depth: 0  # vollständige Historie für SonarQube (Blame, neue Codezeilen)
 
       - name: JDK 21 (Temurin) mit Maven-Cache
         uses: actions/setup-java@v6
@@ -30,8 +35,21 @@ jobs:
           java-version: '21'
           cache: maven
 
+      - name: SonarQube-Cache
+        if: env.SONAR_TOKEN != ''
+        uses: actions/cache@v6
+        with:
+          path: ~/.sonar/cache
+          key: ${{ runner.os }}-sonar
+          restore-keys: ${{ runner.os }}-sonar
+
       - name: Build, Tests und Coverage
+        if: env.SONAR_TOKEN == ''
         run: ./mvnw -B verify
+
+      - name: Build, Tests, Coverage und SonarQube-Analyse
+        if: env.SONAR_TOKEN != ''
+        run: ./mvnw -B verify sonar:sonar
 
       - name: Test-Reports hochladen
         if: always()
