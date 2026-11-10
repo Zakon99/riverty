@@ -16,6 +16,7 @@ import de.riverty.buchungsservice.internal.domain.Forderungskonto;
 import de.riverty.buchungsservice.internal.domain.KontoDebitor;
 import de.riverty.buchungsservice.internal.domain.Kreditor;
 import de.riverty.buchungsservice.internal.domain.NichtGefundenException;
+import de.riverty.buchungsservice.internal.domain.UngueltigeSucheException;
 
 class KontoServiceTest extends ServiceTestBasis {
 
@@ -99,15 +100,22 @@ class KontoServiceTest extends ServiceTestBasis {
     }
 
     @Test
-    @DisplayName("S1-AK-11: Erneute Zuordnung desselben Debitors zum selben Konto → Duplikat")
+    @DisplayName("S1-AK-11 / S2-Entscheidung 4: Erneute Zuordnung desselben Debitors zum selben Konto → Duplikat mit vorhandeneId = Debitor-Id")
     void doppelteZuordnung() {
         Kreditor kr1 = testdaten.kreditor("KR-1");
+        // Zusaetzliche Debitoren, damit Debitor-Id und Zuordnungs-Id auseinanderlaufen (Vorbedingung unten).
+        testdaten.debitor("Dana", "Vorlauf");
+        testdaten.debitor("Dirk", "Vorlauf");
         Debitor d1 = testdaten.debitor("Dora", "Eins");
         Forderungskonto az1 = kontoService.anlegen("AZ-1", kr1.getId(), d1.getId());
+        Long zuordnungsId = jdbc.queryForObject("SELECT id FROM konto_debitor WHERE konto_id = ? AND debitor_id = ?",
+                Long.class, az1.getId(), d1.getId());
+        assertThat(zuordnungsId).as("Vorbedingung: Ids unterscheidbar").isNotEqualTo(d1.getId());
         int vorher = anzahl("konto_debitor");
 
         assertThatThrownBy(() -> kontoService.debitorZuordnen(az1.getId(), d1.getId(), "sb-mueller"))
-                .isInstanceOf(DuplikatException.class);
+                .isInstanceOfSatisfying(DuplikatException.class,
+                        e -> assertThat(e.getVorhandeneId()).isEqualTo(d1.getId()));
         assertThat(anzahl("konto_debitor")).isEqualTo(vorher);
     }
 
@@ -131,6 +139,18 @@ class KontoServiceTest extends ServiceTestBasis {
                 .isInstanceOf(NichtGefundenException.class);
         assertThat(anzahl("forderungskonto")).isZero();
         assertThat(anzahl("konto_debitor")).isZero();
+    }
+
+    @Test
+    @DisplayName("S2-AK-45: Suche ohne Kriterium (beide null bzw. leer/blank) wird vom Service selbst abgelehnt, keine Liste")
+    void sucheOhneKriteriumImService() {
+        Kreditor kr1 = testdaten.kreditor("KR-1");
+        kontoService.anlegen("AZ-1", kr1.getId(), null);
+
+        assertThatThrownBy(() -> kontoService.suchen(null, null)).isInstanceOf(UngueltigeSucheException.class);
+        assertThatThrownBy(() -> kontoService.suchen("", null)).isInstanceOf(UngueltigeSucheException.class);
+        assertThatThrownBy(() -> kontoService.suchen(null, "  ")).isInstanceOf(UngueltigeSucheException.class);
+        assertThatThrownBy(() -> kontoService.suchen(" ", "")).isInstanceOf(UngueltigeSucheException.class);
     }
 
     @Test

@@ -4,26 +4,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.math.BigDecimal;
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.Callable;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.context.annotation.Import;
-import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -31,24 +18,18 @@ import de.riverty.buchungsservice.internal.domain.Buchung;
 import de.riverty.buchungsservice.internal.domain.Buchungsart;
 import de.riverty.buchungsservice.internal.domain.Debitor;
 import de.riverty.buchungsservice.internal.domain.Verrechnung;
+import de.riverty.buchungsservice.support.IntegrationstestBasis;
 import de.riverty.buchungsservice.support.MutableClock;
-import de.riverty.buchungsservice.support.TestClockKonfiguration;
 
 /**
  * Gemeinsame Basis fuer Service-Tests gegen die echte H2-In-Memory-DB (Profil {@code test}).
- * Bewusst ohne {@code @Transactional}: Die Transaktionen der Services sollen unveraendert wirken.
- * Vor jedem Test werden alle Fachtabellen geleert und die Clock auf {@link MutableClock#START} gesetzt.
+ * Das Leeren der Fachtabellen, das Zuruecksetzen der Clock auf {@link MutableClock#START} und {@code parallel(...)}
+ * stammen aus {@link IntegrationstestBasis} (bewusst ohne {@code @Transactional}).
  */
-@SpringBootTest
-@ActiveProfiles("test")
-@Import(TestClockKonfiguration.class)
-abstract class ServiceTestBasis {
+abstract class ServiceTestBasis extends IntegrationstestBasis {
 
     /** Id, die in keinem Test vergeben wird. */
     static final Long UNBEKANNT = 999_999L;
-
-    private static final List<String> TABELLEN =
-            List.of("verrechnung", "buchung", "konto_debitor", "forderungskonto", "debitor", "kreditor");
 
     @Autowired
     protected KreditorService kreditorService;
@@ -63,29 +44,13 @@ abstract class ServiceTestBasis {
     @Autowired
     protected KonsistenzService konsistenzService;
     @Autowired
-    protected JdbcTemplate jdbc;
-    @Autowired
-    protected MutableClock clock;
-    @Autowired
     private PlatformTransactionManager transactionManager;
 
     protected Testdaten testdaten;
 
     @BeforeEach
-    void basisAufsetzen() {
-        datenbankLeeren();
-        clock.zuruecksetzen();
+    void serviceTestdatenAufsetzen() {
         testdaten = new Testdaten(kreditorService, debitorService, kontoService, buchungService, clock);
-    }
-
-    private void datenbankLeeren() {
-        // Selbstreferenzen (stornoVon, aufhebungVon) duerfen das Leeren nicht blockieren.
-        jdbc.execute("SET REFERENTIAL_INTEGRITY FALSE");
-        try {
-            TABELLEN.forEach(tabelle -> jdbc.execute("DELETE FROM " + tabelle));
-        } finally {
-            jdbc.execute("SET REFERENTIAL_INTEGRITY TRUE");
-        }
     }
 
     static BigDecimal eur(String wert) {
@@ -126,11 +91,6 @@ abstract class ServiceTestBasis {
         return verrechnungService.verrechnungen(kontoId).stream()
                 .filter(v -> v.getAusgeloestDurch() != null && v.getAusgeloestDurch().getId().equals(ausloeser.getId()))
                 .toList();
-    }
-
-    int anzahl(String tabelle) {
-        Integer anzahl = jdbc.queryForObject("SELECT COUNT(*) FROM " + tabelle, Integer.class);
-        return anzahl == null ? 0 : anzahl;
     }
 
     int anzahlBuchungen(Long kontoId) {
@@ -185,41 +145,6 @@ abstract class ServiceTestBasis {
 
     private Map<Object, Map<String, Object>> zeilenNachId(String tabelle) {
         return jdbc.queryForList("SELECT * FROM " + tabelle).stream().collect(Collectors.toMap(z -> z.get("id"), Function.identity()));
-    }
-
-    /**
-     * Startet beide Aufrufe moeglichst gleichzeitig (Startsignal per Latch) und sammelt je Aufruf Ergebnis oder Fehler,
-     * in der Reihenfolge der Parameter. Haengt ein Aufruf laenger als 30 Sekunden, schlaegt der Test fehl.
-     */
-    <T> List<Ausgang<T>> parallel(Callable<T> erster, Callable<T> zweiter) throws InterruptedException {
-        CountDownLatch bereit = new CountDownLatch(2);
-        CountDownLatch start = new CountDownLatch(1);
-        List<Ausgang<T>> ausgaenge = new ArrayList<>();
-        try (ExecutorService executor = Executors.newFixedThreadPool(2)) {
-            List<Future<T>> futures = new ArrayList<>();
-            for (Callable<T> aufruf : List.of(erster, zweiter)) {
-                futures.add(executor.submit(() -> {
-                    bereit.countDown();
-                    start.await();
-                    return aufruf.call();
-                }));
-            }
-            assertThat(bereit.await(10, TimeUnit.SECONDS)).isTrue();
-            start.countDown();
-            for (Future<T> future : futures) {
-                try {
-                    ausgaenge.add(new Ausgang<>(future.get(30, TimeUnit.SECONDS), null));
-                } catch (ExecutionException e) {
-                    ausgaenge.add(new Ausgang<>(null, e.getCause()));
-                } catch (TimeoutException e) {
-                    throw new AssertionError("Paralleler Aufruf haengt", e);
-                }
-            }
-        }
-        return ausgaenge;
-    }
-
-    record Ausgang<T>(T ergebnis, Throwable fehler) {
     }
 
     record Zuordnung(Long debitorId, Instant zugeordnetAm, String zugeordnetVon) {
