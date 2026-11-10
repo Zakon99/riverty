@@ -16,6 +16,10 @@ Den versionierten Pre-Push-Hook aktivieren. Er führt vor jedem Push `./mvnw ver
 git config core.hooksPath .githooks
 ```
 
+## Konfiguration
+
+Die Zugangsdaten der lokalen H2-Datenbank (`sa`, leeres Passwort) stehen der Einfachheit halber im Klartext in `application.yml`. In produktivem Code stünden Credentials natürlich nicht im Klartext im Repository. Sie würden über Umgebungsvariablen oder einen Secret-Store (z. B. Vault, Kubernetes Secrets oder einen Cloud Secrets Manager) injiziert.
+
 ## Annahmen
 
 ### Verrechnung
@@ -36,12 +40,38 @@ git config core.hooksPath .githooks
 - Die Valuta einer Storno-Buchung ist die **Valuta der Originalbuchung**. Original und Storno fallen in der Historie zeitlich zusammen.
 - Eine Sollbuchung, auf die bereits eine Ausbuchung verrechnet ist, kann nicht storniert werden (422). Zuerst muss die Ausbuchung storniert werden, denn eine Ausbuchung darf nie Guthaben erzeugen.
 
+- Die Storno-Buchung muss zum Konto im Pfad gehören. Die Id einer Buchung eines anderen Kontos wird als Regelverstoß abgelehnt (422).
+
 ### Ausbuchung
 - Ausgebucht wird immer der gesamte offene Rest des Kontos. Erfasst werden alle offenen Posten, **unabhängig von ihrer Valuta**.
-- Die Valuta einer Ausbuchung ist das aktuelle Datum (aus der injizierten `Clock`).
+- Die Valuta einer Ausbuchung ist das aktuelle Datum aus der injizierten `Clock`, bestimmt in **UTC**. Das System verwendet weltweit einheitlich UTC.
+- Hat ein Debitor noch Guthaben, während Posten offen sind, wird die Ausbuchung abgelehnt (422). Zuerst muss das Guthaben über `POST /api/konten/{id}/verrechnung` verteilt werden. Sonst würde eine Forderung abgeschrieben, die mit vorhandenem Geld bezahlt werden kann.
+
+### Explizite Verrechnung
+- Gibt es nichts zu verteilen (kein Guthaben oder keine offenen Posten), ist der Aufruf ein No-op und liefert eine leere Liste mit 200. So bleibt der Endpunkt idempotent.
+
+### Beteiligte und Konto
+- Der Dublettenschlüssel eines Debitors besteht aus den getrennt normalisierten Feldern. „Anna Lena / Schmidt“ und „Anna / Lena Schmidt“ sind daher verschiedene Personen. Normalisiert wird nur wie spezifiziert (trim, lowercase, Umlaute, ß, Leerzeichen). Akzente und Bindestriche bleiben unverändert.
+- Kreditorennummer und Aktenzeichen werden getrimmt, Groß- und Kleinschreibung bleibt erhalten. Ein doppeltes Aktenzeichen liefert wie bei Kreditor und Debitor 409 mit der Id des vorhandenen Kontos.
+- Wird ein Debitor einem Konto zugeordnet, dem er schon zugeordnet ist, antwortet der Service mit 409.
+- Wird bei der Kontoanlage direkt ein Debitor zugeordnet, steht in `zugeordnetVon` der Wert „Kontoanlage“, weil der Request dafür kein Feld hat.
+
+### Fehlerfälle
+- Ein Betrag, der nach dem Runden 0.00 ergibt (z. B. 0.004), ist aus Client-Sicht eine ungültige Eingabe wie 0 oder ein negativer Betrag und ergibt 400.
+- Eine Zahlung mit einer nicht existierenden `debitorId` ergibt 404. 422 gibt es, wenn der Debitor existiert, aber dem Konto nicht zugeordnet ist.
 
 ### Valuta
 - Valuten dürfen in der Zukunft liegen und vom Buchungstag abweichen.
 
+### Konsistenzprüfung
+Geprüft werden zwei Invarianten:
+1. Der gespeicherte Saldo entspricht dem Saldo aus allen Buchungen.
+2. Die Verrechnungen sind stimmig:
+   - Kein Sollposten ist überbezahlt: Der netto verrechnete Betrag (Verrechnungen minus Aufhebungen) ist höchstens so groß wie der Betrag des Postens.
+   - Keine Haben-Buchung (Zahlung oder Ausbuchung) ist überverteilt.
+
+Die ursprünglich geplante Invariante „Saldo = Σ offene Posten − Σ Guthaben“ wurde bewusst durch diese direkten Prüfungen ersetzt. Sie benennen die betroffene Buchung konkret und sind einfacher nachzuvollziehen. Eine Abweichung wird mit erwartetem Wert, Istwert und Differenz (Ist − Erwartet) gemeldet und zusätzlich als Error geloggt.
+
 ### Idempotenz
 - Der Request-Hash umfasst neben den fachlichen Feldern auch den Operationstyp, die Konto-Id und bei Storno die Id der stornierten Buchung. Dieselbe `clientRequestId` auf einem anderen Konto oder für eine andere Operation führt daher zu 409.
+- Ein Replay hat Vorrang vor fachlichen Prüfungen. Ein identisch wiederholtes Storno liefert die Original-Storno-Buchung und keinen Doppelstorno-Konflikt.

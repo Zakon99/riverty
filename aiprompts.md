@@ -50,8 +50,12 @@ Bei der Planfreigabe habe ich zusätzlich festgelegt:
 |---|---|---|
 | Valuta einer Storno-Buchung | Datum des Buchungstags (aus der `Clock`) | Valuta des **Originals**, damit Original und Storno in der Historie zeitlich zusammenfallen |
 | Commit-Attribution | Standardmäßig `Co-Authored-By` in den Commits | Keine Attribution in Commits. Die KI-Nutzung ist stattdessen hier dokumentiert |
+| Konsistenz-Invariante 2 | „Saldo = Σ offene Posten − Σ Guthaben“, verglichen mit dem berechneten Saldo | Ersetzt durch zwei direkte Prüfungen: kein Posten überbezahlt, keine Zahlung oder Ausbuchung überverteilt. Die Summenformel ist schwer nachvollziehbar und benennt die fehlerhafte Buchung nicht |
+| Storno mit Buchung eines anderen Kontos | 404 („in diesem Konto nicht gefunden“) | 422: Die Buchung existiert, die Anfrage verletzt aber die Regel, dass Storno und Original zum selben Konto gehören |
+| Zeitzone für „heute“ (Ausbuchungs-Valuta) | Europe/Berlin (deutscher Geschäftstag) | UTC, für ein weltweit einheitliches System |
 
 ## Zentrale Prompts (Kurzform)
 
 1. **Initialer Auftrag:** Buchungsservice in Java 21 / Spring Boot mit Fachmodell (Konto, Beteiligte, Buchungen, Verrechnung nach § 367, Storno, Ausbuchung), REST-API, Idempotenz, Konsistenzprüfung, Prioritätsstufen 0 bis 6 und Definition of Done. Zuerst Plan vorstellen, dann stufenweise umsetzen.
 2. **Planfreigabe:** Arbeit in Sprints mit Review vor jedem Commit. Offene Punkte entschieden: 422 bei Storno einer ausgebuchten Sollbuchung, Valuta-Regeln für Storno und Ausbuchung, Umfang der automatischen Verrechnung, Zahlung ohne offene Posten, Umfang des Idempotenz-Hashes.
+3. **Akzeptanzkriterien Stufe 1:** Der Product-Manager-Agent hat 50 Given/When/Then-Kriterien mit konkreten Rechenbeispielen abgeleitet und zehn Lücken im Auftrag als offene Fragen gemeldet. Meine Entscheidungen: 400 für einen Betrag, der auf 0 rundet; 404 bei unbekanntem Debitor; 422 bei Storno über Kontogrenzen; 409 bei doppelter Debitor-Zuordnung; No-op bei expliziter Verrechnung ohne Wirkung; 422 bei Ausbuchung trotz Guthaben; neue Konsistenz-Invariante 2; UTC als Zeitzone.
