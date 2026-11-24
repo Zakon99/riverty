@@ -21,7 +21,7 @@
         <java.version>21</java.version>
         <maven.compiler.release>21</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <springdoc.version>3.2.0</springdoc.version>
+        <springdoc.version>3.2.1</springdoc.version>
         <archunit.version>1.5.1</archunit.version>
         <jacoco.version>0.8.16</jacoco.version>
         <sonar-maven-plugin.version>5.8.0.7211</sonar-maven-plugin.version>
